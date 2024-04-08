@@ -4,6 +4,7 @@ import { screen } from '@testing-library/dom';
 import { FormProvider, useForm } from 'react-hook-form';
 import TopicForm, { Props } from 'components/Topics/shared/Form/TopicForm';
 import userEvent from '@testing-library/user-event';
+import { act } from 'react-dom/test-utils';
 
 const isSubmitting = false;
 const onSubmit = jest.fn();
@@ -29,44 +30,53 @@ const expectByRoleAndNameToBeInDocument = (
 };
 
 describe('TopicForm', () => {
-  it('renders', () => {
-    renderComponent();
+  it('renders', async () => {
+    await act(async () => {
+      renderComponent();
+    });
 
     expectByRoleAndNameToBeInDocument('textbox', 'Topic Name *');
 
-    expectByRoleAndNameToBeInDocument('spinbutton', 'Number of partitions *');
-    expectByRoleAndNameToBeInDocument('spinbutton', 'Replication Factor *');
+    expectByRoleAndNameToBeInDocument('spinbutton', 'Number of Partitions *');
+    expectByRoleAndNameToBeInDocument('spinbutton', 'Replication Factor');
 
-    expectByRoleAndNameToBeInDocument('spinbutton', 'Min In Sync Replicas *');
+    expectByRoleAndNameToBeInDocument('spinbutton', 'Min In Sync Replicas');
     expectByRoleAndNameToBeInDocument('listbox', 'Cleanup policy');
 
     expectByRoleAndNameToBeInDocument(
       'spinbutton',
       'Time to retain data (in ms)'
     );
-    expectByRoleAndNameToBeInDocument('button', '12h');
-    expectByRoleAndNameToBeInDocument('button', '2d');
-    expectByRoleAndNameToBeInDocument('button', '7d');
-    expectByRoleAndNameToBeInDocument('button', '4w');
+    expectByRoleAndNameToBeInDocument('button', '12 hours');
+    expectByRoleAndNameToBeInDocument('button', '2 days');
+    expectByRoleAndNameToBeInDocument('button', '7 days');
+    expectByRoleAndNameToBeInDocument('button', '4 weeks');
 
     expectByRoleAndNameToBeInDocument('listbox', 'Max size on disk in GB');
     expectByRoleAndNameToBeInDocument(
       'spinbutton',
-      'Maximum message size in bytes *'
+      'Maximum message size in bytes'
     );
 
     expectByRoleAndNameToBeInDocument('heading', 'Custom parameters');
 
-    expectByRoleAndNameToBeInDocument('button', 'Submit');
+    expectByRoleAndNameToBeInDocument('button', 'Create topic');
   });
 
-  it('submits', () => {
-    renderComponent({
-      isSubmitting,
-      onSubmit: onSubmit.mockImplementation((e) => e.preventDefault()),
+  it('submits', async () => {
+    await act(async () => {
+      renderComponent({
+        isSubmitting,
+        onSubmit: onSubmit.mockImplementation((e) => e.preventDefault()),
+      });
     });
 
-    userEvent.click(screen.getByRole('button', { name: 'Submit' }));
+    await userEvent.type(
+      screen.getByPlaceholderText('Topic Name'),
+      'topicName'
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Create topic' }));
+
     expect(onSubmit).toBeCalledTimes(1);
   });
 });

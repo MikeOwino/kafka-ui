@@ -6,12 +6,11 @@ import com.provectus.kafka.ui.model.ConsumerGroupDetailsDTO;
 import com.provectus.kafka.ui.model.ConsumerGroupStateDTO;
 import com.provectus.kafka.ui.model.ConsumerGroupTopicPartitionDTO;
 import com.provectus.kafka.ui.model.InternalConsumerGroup;
+import com.provectus.kafka.ui.model.InternalTopicConsumerGroup;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
 import org.apache.kafka.common.Node;
 import org.apache.kafka.common.TopicPartition;
 
@@ -22,6 +21,20 @@ public class ConsumerGroupMapper {
 
   public static ConsumerGroupDTO toDto(InternalConsumerGroup c) {
     return convertToConsumerGroup(c, new ConsumerGroupDTO());
+  }
+
+  public static ConsumerGroupDTO toDto(InternalTopicConsumerGroup c) {
+    ConsumerGroupDTO consumerGroup = new ConsumerGroupDetailsDTO();
+    consumerGroup.setTopics(1); //for ui backward-compatibility, need to rm usage from ui
+    consumerGroup.setGroupId(c.getGroupId());
+    consumerGroup.setMembers(c.getMembers());
+    consumerGroup.setConsumerLag(c.getConsumerLag());
+    consumerGroup.setSimple(c.isSimple());
+    consumerGroup.setPartitionAssignor(c.getPartitionAssignor());
+    consumerGroup.setState(mapConsumerGroupState(c.getState()));
+    Optional.ofNullable(c.getCoordinator())
+        .ifPresent(cd -> consumerGroup.setCoordinator(mapCoordinator(cd)));
+    return consumerGroup;
   }
 
   public static ConsumerGroupDetailsDTO toDetailsDto(InternalConsumerGroup g) {
@@ -41,7 +54,7 @@ public class ConsumerGroupMapper {
           .orElse(0L);
 
       partition.setEndOffset(endOffset.orElse(0L));
-      partition.setMessagesBehind(behind);
+      partition.setConsumerLag(behind);
 
       partitionMap.put(entry.getKey(), partition);
     }
@@ -67,23 +80,8 @@ public class ConsumerGroupMapper {
       InternalConsumerGroup c, T consumerGroup) {
     consumerGroup.setGroupId(c.getGroupId());
     consumerGroup.setMembers(c.getMembers().size());
-
-    int numTopics = Stream.concat(
-        c.getOffsets().keySet().stream().map(TopicPartition::topic),
-        c.getMembers().stream()
-            .flatMap(m -> m.getAssignment().stream().map(TopicPartition::topic))
-    ).collect(Collectors.toSet()).size();
-
-    long messagesBehind = c.getOffsets().entrySet().stream()
-        .mapToLong(e ->
-            Optional.ofNullable(c.getEndOffsets())
-                .map(o -> o.get(e.getKey()))
-                .map(o -> o - e.getValue())
-                .orElse(0L)
-        ).sum();
-
-    consumerGroup.setMessagesBehind(messagesBehind);
-    consumerGroup.setTopics(numTopics);
+    consumerGroup.setConsumerLag(c.getConsumerLag());
+    consumerGroup.setTopics(c.getTopicNum());
     consumerGroup.setSimple(c.isSimple());
 
     Optional.ofNullable(c.getState())

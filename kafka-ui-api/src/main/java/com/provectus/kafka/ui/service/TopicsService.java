@@ -3,11 +3,13 @@ package com.provectus.kafka.ui.service;
 import static java.util.stream.Collectors.toList;
 import static java.util.stream.Collectors.toMap;
 
+import com.google.common.collect.Sets;
+import com.provectus.kafka.ui.config.ClustersProperties;
 import com.provectus.kafka.ui.exception.TopicMetadataException;
 import com.provectus.kafka.ui.exception.TopicNotFoundException;
 import com.provectus.kafka.ui.exception.TopicRecreationException;
 import com.provectus.kafka.ui.exception.ValidationException;
-import com.provectus.kafka.ui.model.Feature;
+import com.provectus.kafka.ui.model.ClusterFeature;
 import com.provectus.kafka.ui.model.InternalLogDirStats;
 import com.provectus.kafka.ui.model.InternalPartition;
 import com.provectus.kafka.ui.model.InternalPartitionsOffsets;
@@ -15,15 +17,14 @@ import com.provectus.kafka.ui.model.InternalReplica;
 import com.provectus.kafka.ui.model.InternalTopic;
 import com.provectus.kafka.ui.model.InternalTopicConfig;
 import com.provectus.kafka.ui.model.KafkaCluster;
+import com.provectus.kafka.ui.model.Metrics;
 import com.provectus.kafka.ui.model.PartitionsIncreaseDTO;
 import com.provectus.kafka.ui.model.PartitionsIncreaseResponseDTO;
 import com.provectus.kafka.ui.model.ReplicationFactorChangeDTO;
 import com.provectus.kafka.ui.model.ReplicationFactorChangeResponseDTO;
+import com.provectus.kafka.ui.model.Statistics;
 import com.provectus.kafka.ui.model.TopicCreationDTO;
-import com.provectus.kafka.ui.model.TopicMessageSchemaDTO;
 import com.provectus.kafka.ui.model.TopicUpdateDTO;
-import com.provectus.kafka.ui.serde.DeserializationService;
-import com.provectus.kafka.ui.util.JmxClusterUtil;
 import java.time.Duration;
 import java.util.Collection;
 import java.util.Collections;
@@ -38,6 +39,7 @@ import org.apache.kafka.clients.admin.ConfigEntry;
 import org.apache.kafka.clients.admin.NewPartitionReassignment;
 import org.apache.kafka.clients.admin.NewPartitions;
 import org.apache.kafka.clients.admin.OffsetSpec;
+import org.apache.kafka.clients.admin.ProducerState;
 import org.apache.kafka.clients.admin.TopicDescription;
 import org.apache.kafka.common.Node;
 import org.apache.kafka.common.TopicPartition;
@@ -52,8 +54,8 @@ import reactor.util.retry.Retry;
 public class TopicsService {
 
   private final AdminClientService adminClientService;
-  private final DeserializationService deserializationService;
-  private final MetricsCache metricsCache;
+  private final StatisticsCache statisticsCache;
+  private final ClustersProperties clustersProperties;
   @Value("${topic.recreate.maxRetries:15}")
   private int recreateMaxRetries;
   @Value("${topic.recreate.delay.seconds:1}")
@@ -69,17 +71,17 @@ public class TopicsService {
     }
     return adminClientService.get(c)
         .flatMap(ac ->
-            ac.describeTopics(topics).zipWith(ac.getTopicsConfig(topics),
+            ac.describeTopics(topics).zipWith(ac.getTopicsConfig(topics, false),
                 (descriptions, configs) -> {
-                  metricsCache.update(c, descriptions, configs);
+                  statisticsCache.update(c, descriptions, configs);
                   return getPartitionOffsets(descriptions, ac).map(offsets -> {
-                    var metrics = metricsCache.get(c);
+                    var metrics = statisticsCache.get(c);
                     return createList(
                         topics,
                         descriptions,
                         configs,
                         offsets,
-                        metrics.getJmxMetrics(),
+                        metrics.getMetrics(),
                         metrics.getLogDirInfo()
                     );
                   });
@@ -120,7 +122,7 @@ public class TopicsService {
                                          Map<String, TopicDescription> descriptions,
                                          Map<String, List<ConfigEntry>> configs,
                                          InternalPartitionsOffsets partitionsOffsets,
-                                         JmxClusterUtil.JmxMetrics jmxMetrics,
+                                         Metrics metrics,
                                          InternalLogDirStats logDirInfo) {
     return orderedNames.stream()
         .filter(descriptions::containsKey)
@@ -128,25 +130,22 @@ public class TopicsService {
             descriptions.get(t),
             configs.getOrDefault(t, List.of()),
             partitionsOffsets,
-            jmxMetrics,
-            logDirInfo
+            metrics,
+            logDirInfo,
+            clustersProperties.getInternalTopicPrefix()
         ))
         .collect(toList());
   }
 
   private Mono<InternalPartitionsOffsets> getPartitionOffsets(Map<String, TopicDescription>
-                                                                  descriptions,
+                                                                  descriptionsMap,
                                                               ReactiveAdminClient ac) {
-    var topicPartitions = descriptions.values().stream()
-        .flatMap(desc ->
-            desc.partitions().stream().map(p -> new TopicPartition(desc.name(), p.partition())))
-        .collect(toList());
-
-    return ac.listOffsets(topicPartitions, OffsetSpec.earliest())
-        .zipWith(ac.listOffsets(topicPartitions, OffsetSpec.latest()),
+    var descriptions = descriptionsMap.values();
+    return ac.listOffsets(descriptions, OffsetSpec.earliest())
+        .zipWith(ac.listOffsets(descriptions, OffsetSpec.latest()),
             (earliest, latest) ->
-                topicPartitions.stream()
-                    .filter(tp -> earliest.containsKey(tp) && latest.containsKey(tp))
+                Sets.intersection(earliest.keySet(), latest.keySet())
+                    .stream()
                     .map(tp ->
                         Map.entry(tp,
                             new InternalPartitionsOffsets.Offsets(
@@ -160,26 +159,28 @@ public class TopicsService {
   }
 
   public Mono<List<ConfigEntry>> getTopicConfigs(KafkaCluster cluster, String topicName) {
+    // there 2 case that we cover here:
+    // 1. topic not found/visible - describeTopic() will be empty and we will throw TopicNotFoundException
+    // 2. topic is visible, but we don't have DESCRIBE_CONFIG permission - we should return empty list
     return adminClientService.get(cluster)
-        .flatMap(ac -> ac.getTopicsConfig(List.of(topicName)))
-        .map(m -> m.values().stream().findFirst().orElseThrow(TopicNotFoundException::new));
+        .flatMap(ac -> ac.describeTopic(topicName)
+            .switchIfEmpty(Mono.error(new TopicNotFoundException()))
+            .then(ac.getTopicsConfig(List.of(topicName), true))
+            .map(m -> m.values().stream().findFirst().orElse(List.of())));
   }
 
-  private Mono<InternalTopic> createTopic(KafkaCluster c, ReactiveAdminClient adminClient,
-                                          Mono<TopicCreationDTO> topicCreation) {
-    return topicCreation.flatMap(topicData ->
-            adminClient.createTopic(
-                topicData.getName(),
-                topicData.getPartitions(),
-                topicData.getReplicationFactor().shortValue(),
-                topicData.getConfigs()
-            ).thenReturn(topicData)
-        )
-        .onErrorResume(t -> Mono.error(new TopicMetadataException(t.getMessage())))
-        .flatMap(topicData -> loadTopicAfterCreation(c, topicData.getName()));
+  private Mono<InternalTopic> createTopic(KafkaCluster c, ReactiveAdminClient adminClient, TopicCreationDTO topicData) {
+    return adminClient.createTopic(
+            topicData.getName(),
+            topicData.getPartitions(),
+            topicData.getReplicationFactor(),
+            topicData.getConfigs())
+        .thenReturn(topicData)
+        .onErrorMap(t -> new TopicMetadataException(t.getMessage(), t))
+        .then(loadTopicAfterCreation(c, topicData.getName()));
   }
 
-  public Mono<InternalTopic> createTopic(KafkaCluster cluster, Mono<TopicCreationDTO> topicCreation) {
+  public Mono<InternalTopic> createTopic(KafkaCluster cluster, TopicCreationDTO topicCreation) {
     return adminClientService.get(cluster)
         .flatMap(ac -> createTopic(cluster, ac, topicCreation));
   }
@@ -195,7 +196,7 @@ public class TopicsService {
                         ac.createTopic(
                                 topic.getName(),
                                 topic.getPartitionCount(),
-                                (short) topic.getReplicationFactor(),
+                                topic.getReplicationFactor(),
                                 topic.getTopicConfigs()
                                     .stream()
                                     .collect(Collectors.toMap(InternalTopicConfig::getName,
@@ -251,13 +252,18 @@ public class TopicsService {
         .flatMap(ac -> {
           Integer actual = topic.getReplicationFactor();
           Integer requested = replicationFactorChange.getTotalReplicationFactor();
-          Integer brokersCount = metricsCache.get(cluster).getClusterDescription()
+          Integer brokersCount = statisticsCache.get(cluster).getClusterDescription()
               .getNodes().size();
 
           if (requested.equals(actual)) {
             return Mono.error(
                 new ValidationException(
                     String.format("Topic already has replicationFactor %s.", actual)));
+          }
+          if (requested <= 0) {
+            return Mono.error(
+                new ValidationException(
+                    String.format("Requested replication factor (%s) should be greater or equal to 1.", requested)));
           }
           if (requested > brokersCount) {
             return Mono.error(
@@ -362,7 +368,7 @@ public class TopicsService {
 
   private Map<Integer, Integer> getBrokersMap(KafkaCluster cluster,
                                               Map<Integer, List<Integer>> currentAssignment) {
-    Map<Integer, Integer> result = metricsCache.get(cluster).getClusterDescription().getNodes()
+    Map<Integer, Integer> result = statisticsCache.get(cluster).getClusterDescription().getNodes()
         .stream()
         .map(Node::id)
         .collect(toMap(
@@ -410,21 +416,12 @@ public class TopicsService {
   }
 
   public Mono<Void> deleteTopic(KafkaCluster cluster, String topicName) {
-    if (metricsCache.get(cluster).getFeatures().contains(Feature.TOPIC_DELETION)) {
+    if (statisticsCache.get(cluster).getFeatures().contains(ClusterFeature.TOPIC_DELETION)) {
       return adminClientService.get(cluster).flatMap(c -> c.deleteTopic(topicName))
-          .doOnSuccess(t -> metricsCache.onTopicDelete(cluster, topicName));
+          .doOnSuccess(t -> statisticsCache.onTopicDelete(cluster, topicName));
     } else {
       return Mono.error(new ValidationException("Topic deletion restricted"));
     }
-  }
-
-  public TopicMessageSchemaDTO getTopicSchema(KafkaCluster cluster, String topicName) {
-    if (!metricsCache.get(cluster).getTopicDescriptions().containsKey(topicName)) {
-      throw new TopicNotFoundException();
-    }
-    return deserializationService
-        .getRecordDeserializerForCluster(cluster)
-        .getTopicSchema(topicName);
   }
 
   public Mono<InternalTopic> cloneTopic(
@@ -435,7 +432,7 @@ public class TopicsService {
                 ac.createTopic(
                     newTopicName,
                     topic.getPartitionCount(),
-                    (short) topic.getReplicationFactor(),
+                    topic.getReplicationFactor(),
                     topic.getTopicConfigs()
                         .stream()
                         .collect(Collectors
@@ -447,23 +444,34 @@ public class TopicsService {
   }
 
   public Mono<List<InternalTopic>> getTopicsForPagination(KafkaCluster cluster) {
-    MetricsCache.Metrics metrics = metricsCache.get(cluster);
-    return filterExisting(cluster, metrics.getTopicDescriptions().keySet())
-            .map(lst -> lst.stream()
-                .map(topicName ->
-                    InternalTopic.from(
-                        metrics.getTopicDescriptions().get(topicName),
-                        metrics.getTopicConfigs().getOrDefault(topicName, List.of()),
-                        InternalPartitionsOffsets.empty(),
-                        metrics.getJmxMetrics(),
-                        metrics.getLogDirInfo()))
-                .collect(toList())
-            );
+    Statistics stats = statisticsCache.get(cluster);
+    return filterExisting(cluster, stats.getTopicDescriptions().keySet())
+        .map(lst -> lst.stream()
+            .map(topicName ->
+                InternalTopic.from(
+                    stats.getTopicDescriptions().get(topicName),
+                    stats.getTopicConfigs().getOrDefault(topicName, List.of()),
+                    InternalPartitionsOffsets.empty(),
+                    stats.getMetrics(),
+                    stats.getLogDirInfo(),
+                    clustersProperties.getInternalTopicPrefix()
+                    ))
+            .collect(toList())
+        );
+  }
+
+  public Mono<Map<TopicPartition, List<ProducerState>>> getActiveProducersState(KafkaCluster cluster, String topic) {
+    return adminClientService.get(cluster)
+        .flatMap(ac -> ac.getActiveProducersState(topic));
   }
 
   private Mono<List<String>> filterExisting(KafkaCluster cluster, Collection<String> topics) {
-    return adminClientService.get(cluster).flatMap(ac -> ac.listTopics(true))
-        .map(existing -> existing.stream().filter(topics::contains).collect(toList()));
+    return adminClientService.get(cluster)
+        .flatMap(ac -> ac.listTopics(true))
+        .map(existing -> existing
+            .stream()
+            .filter(topics::contains)
+            .collect(toList()));
   }
 
 }

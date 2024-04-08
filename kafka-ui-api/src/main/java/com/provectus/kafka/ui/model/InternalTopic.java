@@ -1,10 +1,11 @@
 package com.provectus.kafka.ui.model;
 
-import com.provectus.kafka.ui.util.JmxClusterUtil;
+import com.provectus.kafka.ui.config.ClustersProperties;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 import lombok.Builder;
 import lombok.Data;
 import org.apache.kafka.clients.admin.ConfigEntry;
@@ -14,6 +15,8 @@ import org.apache.kafka.common.TopicPartition;
 @Data
 @Builder(toBuilder = true)
 public class InternalTopic {
+
+  ClustersProperties clustersProperties;
 
   // from TopicDescription
   private final String name;
@@ -29,7 +32,7 @@ public class InternalTopic {
   private final List<InternalTopicConfig> topicConfigs;
   private final CleanupPolicy cleanUpPolicy;
 
-  // rates from jmx
+  // rates from metrics
   private final BigDecimal bytesInPerSec;
   private final BigDecimal bytesOutPerSec;
 
@@ -40,11 +43,17 @@ public class InternalTopic {
   public static InternalTopic from(TopicDescription topicDescription,
                                    List<ConfigEntry> configs,
                                    InternalPartitionsOffsets partitionsOffsets,
-                                   JmxClusterUtil.JmxMetrics jmxMetrics,
-                                   InternalLogDirStats logDirInfo) {
+                                   Metrics metrics,
+                                   InternalLogDirStats logDirInfo,
+                                   @Nullable String internalTopicPrefix) {
     var topic = InternalTopic.builder();
+
+    internalTopicPrefix = internalTopicPrefix == null || internalTopicPrefix.isEmpty()
+        ? "_"
+        : internalTopicPrefix;
+
     topic.internal(
-        topicDescription.isInternal() || topicDescription.name().startsWith("_")
+        topicDescription.isInternal() || topicDescription.name().startsWith(internalTopicPrefix)
     );
     topic.name(topicDescription.name());
 
@@ -57,9 +66,12 @@ public class InternalTopic {
           partitionDto.inSyncReplicasCount(partition.isr().size());
           partitionDto.replicasCount(partition.replicas().size());
           List<InternalReplica> replicas = partition.replicas().stream()
-              .map(r -> new InternalReplica(r.id(),
-                  partition.leader() != null && partition.leader().id() != r.id(),
-                  partition.isr().contains(r)))
+              .map(r ->
+                  InternalReplica.builder()
+                      .broker(r.id())
+                      .inSync(partition.isr().contains(r))
+                      .leader(partition.leader() != null && partition.leader().id() == r.id())
+                      .build())
               .collect(Collectors.toList());
           partitionDto.replicas(replicas);
 
@@ -79,7 +91,7 @@ public class InternalTopic {
 
           return partitionDto.build();
         })
-        .collect(Collectors.toList());
+        .toList();
 
     topic.partitions(partitions.stream().collect(
         Collectors.toMap(InternalPartition::getPartition, t -> t)));
@@ -102,8 +114,8 @@ public class InternalTopic {
       topic.segmentSize(segmentStats.getSegmentSize());
     }
 
-    topic.bytesInPerSec(jmxMetrics.getBytesInPerSec().get(topicDescription.name()));
-    topic.bytesOutPerSec(jmxMetrics.getBytesOutPerSec().get(topicDescription.name()));
+    topic.bytesInPerSec(metrics.getTopicBytesInPerSec().get(topicDescription.name()));
+    topic.bytesOutPerSec(metrics.getTopicBytesOutPerSec().get(topicDescription.name()));
 
     topic.topicConfigs(
         configs.stream().map(InternalTopicConfig::from).collect(Collectors.toList()));

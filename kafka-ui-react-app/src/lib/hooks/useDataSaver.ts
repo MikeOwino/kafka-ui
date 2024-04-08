@@ -1,46 +1,36 @@
-import isObject from 'lodash/isObject';
-import { alertAdded, alertDissmissed } from 'redux/reducers/alerts/alertsSlice';
-import { useAppDispatch } from 'lib/hooks/redux';
-
-const AUTO_DISMISS_TIME = 2000;
+import { showAlert, showSuccessAlert } from 'lib/errorHandling';
 
 const useDataSaver = (
   subject: string,
   data: Record<string, string> | string
 ) => {
-  const dispatch = useAppDispatch();
   const copyToClipboard = () => {
     if (navigator.clipboard) {
       const str =
         typeof data === 'string' ? String(data) : JSON.stringify(data);
       navigator.clipboard.writeText(str);
-      dispatch(
-        alertAdded({
-          id: subject,
-          type: 'success',
-          title: '',
-          message: 'Copied successfully!',
-          createdAt: Date.now(),
-        })
-      );
-      setTimeout(() => dispatch(alertDissmissed(subject)), AUTO_DISMISS_TIME);
+      showSuccessAlert({
+        id: subject,
+        title: '',
+        message: 'Copied successfully!',
+      });
+    } else {
+      showAlert('warning', {
+        id: subject,
+        title: 'Warning',
+        message:
+          'Copying to clipboard is unavailable due to unsecured (non-HTTPS) connection',
+      });
     }
   };
-
   const saveFile = () => {
-    const extension = isObject(data) ? 'json' : 'txt';
-    const dataStr = `data:text/json;charset=utf-8,${encodeURIComponent(
-      JSON.stringify(data)
-    )}`;
-    const downloadAnchorNode = document.createElement('a');
-    downloadAnchorNode.setAttribute('href', dataStr);
-    downloadAnchorNode.setAttribute(
-      'download',
-      `${subject}_${new Date().getTime()}.${extension}`
-    );
-    document.body.appendChild(downloadAnchorNode);
-    downloadAnchorNode.click();
-    downloadAnchorNode.remove();
+    const blob = new Blob([data as BlobPart], { type: 'text/json' });
+    const elem = window.document.createElement('a');
+    elem.href = window.URL.createObjectURL(blob);
+    elem.download = subject;
+    document.body.appendChild(elem);
+    elem.click();
+    document.body.removeChild(elem);
   };
 
   return { copyToClipboard, saveFile };

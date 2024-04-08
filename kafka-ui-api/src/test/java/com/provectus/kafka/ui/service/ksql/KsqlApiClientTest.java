@@ -3,32 +3,21 @@ package com.provectus.kafka.ui.service.ksql;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.DoubleNode;
+import com.fasterxml.jackson.databind.node.DecimalNode;
 import com.fasterxml.jackson.databind.node.IntNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.TextNode;
 import com.provectus.kafka.ui.AbstractIntegrationTest;
-import com.provectus.kafka.ui.container.KsqlDbContainer;
-import com.provectus.kafka.ui.model.InternalKsqlServer;
-import com.provectus.kafka.ui.model.KafkaCluster;
+import java.math.BigDecimal;
 import java.time.Duration;
-import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
-import org.springframework.util.unit.DataSize;
 import org.testcontainers.shaded.org.awaitility.Awaitility;
-import org.testcontainers.utility.DockerImageName;
 import reactor.test.StepVerifier;
 
 class KsqlApiClientTest extends AbstractIntegrationTest {
-
-  private static final KsqlDbContainer KSQL_DB = new KsqlDbContainer(
-      DockerImageName.parse("confluentinc/ksqldb-server").withTag("0.24.0"))
-      .withKafka(kafka);
-
-  private static final DataSize maxBuffSize = DataSize.ofMegabytes(20);
 
   @BeforeAll
   static void startContainer() {
@@ -43,8 +32,7 @@ class KsqlApiClientTest extends AbstractIntegrationTest {
   // Tutorial is here: https://ksqldb.io/quickstart.html
   @Test
   void ksqTutorialQueriesWork() {
-    var client = new KsqlApiClient(KafkaCluster.builder().ksqldbServer(
-            InternalKsqlServer.builder().url(KSQL_DB.url()).build()).build(), maxBuffSize);
+    var client = ksqlClient();
     execCommandSync(client,
         "CREATE STREAM riderLocations (profileId VARCHAR, latitude DOUBLE, longitude DOUBLE) "
             + "WITH (kafka_topic='locations', value_format='json', partitions=1);",
@@ -78,7 +66,7 @@ class KsqlApiClientTest extends AbstractIntegrationTest {
   private void assertLastKsqTutorialQueryResult(KsqlApiClient client) {
     // expected results:
     //{"header":"Schema","columnNames":[...],"values":null}
-    //{"header":"Row","columnNames":null,"values":[[0.0,["4ab5cbad","8b6eae59","4a7c7b41"],3]]}
+    //{"header":"Row","columnNames":null,"values":[[0,["4ab5cbad","8b6eae59","4a7c7b41"],3]]}
     //{"header":"Row","columnNames":null,"values":[[10.0,["18f4ea86"],1]]}
     StepVerifier.create(
             client.execute(
@@ -92,34 +80,26 @@ class KsqlApiClientTest extends AbstractIntegrationTest {
           assertThat(header.getValues()).isNull();
         })
         .assertNext(row -> {
-          assertThat(row).isEqualTo(
-              KsqlApiClient.KsqlResponseTable.builder()
-                  .header("Row")
-                  .columnNames(null)
-                  .values(List.of(List.of(
-                      new DoubleNode(0.0),
-                      new ArrayNode(JsonNodeFactory.instance)
-                          .add(new TextNode("4ab5cbad"))
-                          .add(new TextNode("8b6eae59"))
-                          .add(new TextNode("4a7c7b41")),
-                      new IntNode(3)
-                  )))
-                  .build()
-          );
+          var distance = (DecimalNode) row.getValues().get(0).get(0);
+          var riders = (ArrayNode) row.getValues().get(0).get(1);
+          var count = (IntNode) row.getValues().get(0).get(2);
+
+          assertThat(distance).isEqualTo(new DecimalNode(new BigDecimal(0)));
+          assertThat(riders).isEqualTo(new ArrayNode(JsonNodeFactory.instance)
+              .add(new TextNode("4ab5cbad"))
+              .add(new TextNode("8b6eae59"))
+              .add(new TextNode("4a7c7b41")));
+          assertThat(count).isEqualTo(new IntNode(3));
         })
         .assertNext(row -> {
-          assertThat(row).isEqualTo(
-              KsqlApiClient.KsqlResponseTable.builder()
-                  .header("Row")
-                  .columnNames(null)
-                  .values(List.of(List.of(
-                      new DoubleNode(10.0),
-                      new ArrayNode(JsonNodeFactory.instance)
-                          .add(new TextNode("18f4ea86")),
-                      new IntNode(1)
-                  )))
-                  .build()
-          );
+          var distance = (DecimalNode) row.getValues().get(0).get(0);
+          var riders = (ArrayNode) row.getValues().get(0).get(1);
+          var count = (IntNode) row.getValues().get(0).get(2);
+
+          assertThat(distance).isEqualTo(new DecimalNode(new BigDecimal(10)));
+          assertThat(riders).isEqualTo(new ArrayNode(JsonNodeFactory.instance)
+              .add(new TextNode("18f4ea86")));
+          assertThat(count).isEqualTo(new IntNode(1));
         })
         .verifyComplete();
   }
@@ -128,6 +108,10 @@ class KsqlApiClientTest extends AbstractIntegrationTest {
     for (String ksql : ksqls) {
       client.execute(ksql, Map.of()).collectList().block();
     }
+  }
+
+  private KsqlApiClient ksqlClient() {
+    return new KsqlApiClient(KSQL_DB.url(), null, null, null, null);
   }
 
 

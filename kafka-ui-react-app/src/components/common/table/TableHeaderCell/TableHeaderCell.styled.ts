@@ -67,12 +67,6 @@ const DESCMixin = css(
   `
 );
 
-export const Td = styled.td<{ maxWidth?: string }>`
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: ${(props) => props.maxWidth};
-`;
-
 export const Title = styled.span<TitleProps>(
   ({ isOrderable, isOrdered, sortOrder, theme: { table } }) => css`
     font-family: Inter, sans-serif;
@@ -80,7 +74,7 @@ export const Title = styled.span<TitleProps>(
     font-style: normal;
     font-weight: 400;
     line-height: 16px;
-    letter-spacing: 0em;
+    letter-spacing: 0;
     text-align: left;
     display: inline-block;
     justify-content: start;
@@ -103,11 +97,11 @@ export const Preview = styled.span`
   font-style: normal;
   font-weight: 400;
   line-height: 16px;
-  letter-spacing: 0em;
+  letter-spacing: 0;
   text-align: left;
-  background: ${(props) => props.theme.table.th.backgroundColor.normal};
+  background: ${({ theme }) => theme.table.th.backgroundColor.normal};
   font-size: 14px;
-  color: ${(props) => props.theme.table.th.previewColor.normal};
+  color: ${({ theme }) => theme.table.th.previewColor.normal};
   cursor: pointer;
 `;
 
@@ -115,4 +109,5 @@ export const TableHeaderCell = styled.th`
   padding: 4px 0 4px 24px;
   border-bottom-width: 1px;
   vertical-align: middle;
+  text-align: left;
 `;

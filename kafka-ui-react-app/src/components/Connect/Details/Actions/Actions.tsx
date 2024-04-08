@@ -1,214 +1,151 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import useAppParams from 'lib/hooks/useAppParams';
-import { ConnectorState, ConnectorAction } from 'generated-sources';
-import { ClusterName, ConnectName, ConnectorName } from 'redux/interfaces';
+import { useIsMutating } from '@tanstack/react-query';
 import {
-  clusterConnectConnectorEditPath,
+  Action,
+  ConnectorAction,
+  ConnectorState,
+  ResourceType,
+} from 'generated-sources';
+import useAppParams from 'lib/hooks/useAppParams';
+import {
+  useConnector,
+  useDeleteConnector,
+  useUpdateConnectorState,
+} from 'lib/hooks/api/kafkaConnect';
+import {
   clusterConnectorsPath,
   RouterParamsClusterConnectConnector,
 } from 'lib/paths';
-import ConfirmationModal from 'components/common/ConfirmationModal/ConfirmationModal';
-import styled from 'styled-components';
-import { Button } from 'components/common/Button/Button';
+import { useConfirm } from 'lib/hooks/useConfirm';
+import { Dropdown } from 'components/common/Dropdown';
+import { ActionDropdownItem } from 'components/common/ActionComponent';
+import ChevronDownIcon from 'components/common/Icons/ChevronDownIcon';
 
-const ConnectorActionsWrapperStyled = styled.div`
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-`;
+import * as S from './Action.styled';
 
-export interface ActionsProps {
-  deleteConnector(payload: {
-    clusterName: ClusterName;
-    connectName: ConnectName;
-    connectorName: ConnectorName;
-  }): Promise<unknown>;
-  isConnectorDeleting: boolean;
-  connectorStatus?: ConnectorState;
-  restartConnector(payload: {
-    clusterName: ClusterName;
-    connectName: ConnectName;
-    connectorName: ConnectorName;
-  }): void;
-  restartTasks(payload: {
-    clusterName: ClusterName;
-    connectName: ConnectName;
-    connectorName: ConnectorName;
-    action: ConnectorAction;
-  }): void;
-  pauseConnector(payload: {
-    clusterName: ClusterName;
-    connectName: ConnectName;
-    connectorName: ConnectorName;
-  }): void;
-  resumeConnector(payload: {
-    clusterName: ClusterName;
-    connectName: ConnectName;
-    connectorName: ConnectorName;
-  }): void;
-  isConnectorActionRunning: boolean;
-}
-
-const Actions: React.FC<ActionsProps> = ({
-  deleteConnector,
-  isConnectorDeleting,
-  connectorStatus,
-  restartConnector,
-  restartTasks,
-  pauseConnector,
-  resumeConnector,
-  isConnectorActionRunning,
-}) => {
-  const { clusterName, connectName, connectorName } =
-    useAppParams<RouterParamsClusterConnectConnector>();
-
+const Actions: React.FC = () => {
   const navigate = useNavigate();
+  const routerProps = useAppParams<RouterParamsClusterConnectConnector>();
+  const mutationsNumber = useIsMutating();
+  const isMutating = mutationsNumber > 0;
 
-  const [
-    isDeleteConnectorConfirmationVisible,
-    setIsDeleteConnectorConfirmationVisible,
-  ] = React.useState(false);
+  const { data: connector } = useConnector(routerProps);
+  const confirm = useConfirm();
 
-  const deleteConnectorHandler = async () => {
-    try {
-      await deleteConnector({ clusterName, connectName, connectorName });
-      navigate(clusterConnectorsPath(clusterName));
-    } catch {
-      // do not redirect
-    }
-  };
-
-  const restartConnectorHandler = () => {
-    restartConnector({ clusterName, connectName, connectorName });
-  };
-
-  const restartTasksHandler = (actionType: ConnectorAction) => {
-    restartTasks({
-      clusterName,
-      connectName,
-      connectorName,
-      action: actionType,
-    });
-  };
-
-  const pauseConnectorHandler = () => {
-    pauseConnector({ clusterName, connectName, connectorName });
-  };
-
-  const resumeConnectorHandler = () => {
-    resumeConnector({ clusterName, connectName, connectorName });
-  };
-
-  return (
-    <ConnectorActionsWrapperStyled>
-      {connectorStatus === ConnectorState.RUNNING && (
-        <Button
-          buttonSize="M"
-          buttonType="primary"
-          type="button"
-          onClick={pauseConnectorHandler}
-          disabled={isConnectorActionRunning}
-        >
-          <span>
-            <i className="fas fa-pause" />
-          </span>
-          <span>Pause</span>
-        </Button>
-      )}
-
-      {connectorStatus === ConnectorState.PAUSED && (
-        <Button
-          buttonSize="M"
-          buttonType="primary"
-          type="button"
-          onClick={resumeConnectorHandler}
-          disabled={isConnectorActionRunning}
-        >
-          <span>
-            <i className="fas fa-play" />
-          </span>
-          <span>Resume</span>
-        </Button>
-      )}
-
-      <Button
-        buttonSize="M"
-        buttonType="primary"
-        type="button"
-        onClick={restartConnectorHandler}
-        disabled={isConnectorActionRunning}
-      >
-        <span>
-          <i className="fas fa-sync-alt" />
-        </span>
-        <span>Restart Connector</span>
-      </Button>
-      <Button
-        buttonSize="M"
-        buttonType="primary"
-        type="button"
-        onClick={() => restartTasksHandler(ConnectorAction.RESTART_ALL_TASKS)}
-        disabled={isConnectorActionRunning}
-      >
-        <span>
-          <i className="fas fa-sync-alt" />
-        </span>
-        <span>Restart All Tasks</span>
-      </Button>
-      <Button
-        buttonSize="M"
-        buttonType="primary"
-        type="button"
-        onClick={() =>
-          restartTasksHandler(ConnectorAction.RESTART_FAILED_TASKS)
+  const deleteConnectorMutation = useDeleteConnector(routerProps);
+  const deleteConnectorHandler = () =>
+    confirm(
+      <>
+        Are you sure you want to remove <b>{routerProps.connectorName}</b>{' '}
+        connector?
+      </>,
+      async () => {
+        try {
+          await deleteConnectorMutation.mutateAsync();
+          navigate(clusterConnectorsPath(routerProps.clusterName));
+        } catch {
+          // do not redirect
         }
-        disabled={isConnectorActionRunning}
-      >
-        <span>
-          <i className="fas fa-sync-alt" />
-        </span>
-        <span>Restart Failed Tasks</span>
-      </Button>
-      <Button
-        buttonSize="M"
-        buttonType="primary"
-        type="button"
-        disabled={isConnectorActionRunning}
-        to={clusterConnectConnectorEditPath(
-          clusterName,
-          connectName,
-          connectorName
-        )}
-      >
-        <span>
-          <i className="fas fa-pencil-alt" />
-        </span>
-        <span>Edit Config</span>
-      </Button>
+      }
+    );
 
-      <Button
-        buttonSize="M"
-        buttonType="secondary"
-        type="button"
-        onClick={() => setIsDeleteConnectorConfirmationVisible(true)}
-        disabled={isConnectorActionRunning}
+  const stateMutation = useUpdateConnectorState(routerProps);
+  const restartConnectorHandler = () =>
+    stateMutation.mutateAsync(ConnectorAction.RESTART);
+  const restartAllTasksHandler = () =>
+    stateMutation.mutateAsync(ConnectorAction.RESTART_ALL_TASKS);
+  const restartFailedTasksHandler = () =>
+    stateMutation.mutateAsync(ConnectorAction.RESTART_FAILED_TASKS);
+  const pauseConnectorHandler = () =>
+    stateMutation.mutateAsync(ConnectorAction.PAUSE);
+  const resumeConnectorHandler = () =>
+    stateMutation.mutateAsync(ConnectorAction.RESUME);
+  return (
+    <S.ConnectorActionsWrapperStyled>
+      <Dropdown
+        label={
+          <S.RestartButton>
+            <S.ButtonLabel>Restart</S.ButtonLabel>
+            <ChevronDownIcon />
+          </S.RestartButton>
+        }
       >
-        <span>
-          <i className="far fa-trash-alt" />
-        </span>
-        <span>Delete</span>
-      </Button>
-      <ConfirmationModal
-        isOpen={isDeleteConnectorConfirmationVisible}
-        onCancel={() => setIsDeleteConnectorConfirmationVisible(false)}
-        onConfirm={deleteConnectorHandler}
-        isConfirming={isConnectorDeleting}
-      >
-        Are you sure you want to remove <b>{connectorName}</b> connector?
-      </ConfirmationModal>
-    </ConnectorActionsWrapperStyled>
+        {connector?.status.state === ConnectorState.RUNNING && (
+          <ActionDropdownItem
+            onClick={pauseConnectorHandler}
+            disabled={isMutating}
+            permission={{
+              resource: ResourceType.CONNECT,
+              action: Action.EDIT,
+              value: routerProps.connectorName,
+            }}
+          >
+            Pause
+          </ActionDropdownItem>
+        )}
+        {connector?.status.state === ConnectorState.PAUSED && (
+          <ActionDropdownItem
+            onClick={resumeConnectorHandler}
+            disabled={isMutating}
+            permission={{
+              resource: ResourceType.CONNECT,
+              action: Action.EDIT,
+              value: routerProps.connectorName,
+            }}
+          >
+            Resume
+          </ActionDropdownItem>
+        )}
+        <ActionDropdownItem
+          onClick={restartConnectorHandler}
+          disabled={isMutating}
+          permission={{
+            resource: ResourceType.CONNECT,
+            action: Action.RESTART,
+            value: routerProps.connectorName,
+          }}
+        >
+          Restart Connector
+        </ActionDropdownItem>
+        <ActionDropdownItem
+          onClick={restartAllTasksHandler}
+          disabled={isMutating}
+          permission={{
+            resource: ResourceType.CONNECT,
+            action: Action.RESTART,
+            value: routerProps.connectorName,
+          }}
+        >
+          Restart All Tasks
+        </ActionDropdownItem>
+        <ActionDropdownItem
+          onClick={restartFailedTasksHandler}
+          disabled={isMutating}
+          permission={{
+            resource: ResourceType.CONNECT,
+            action: Action.RESTART,
+            value: routerProps.connectorName,
+          }}
+        >
+          Restart Failed Tasks
+        </ActionDropdownItem>
+      </Dropdown>
+      <Dropdown>
+        <ActionDropdownItem
+          onClick={deleteConnectorHandler}
+          disabled={isMutating}
+          danger
+          permission={{
+            resource: ResourceType.CONNECT,
+            action: Action.DELETE,
+            value: routerProps.connectorName,
+          }}
+        >
+          Delete
+        </ActionDropdownItem>
+      </Dropdown>
+    </S.ConnectorActionsWrapperStyled>
   );
 };
 

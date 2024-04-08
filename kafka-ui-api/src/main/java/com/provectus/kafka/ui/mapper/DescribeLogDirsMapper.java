@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 import org.apache.kafka.common.TopicPartition;
+import org.apache.kafka.common.protocol.Errors;
 import org.apache.kafka.common.requests.DescribeLogDirsResponse;
 import org.springframework.stereotype.Component;
 
@@ -20,7 +21,7 @@ public class DescribeLogDirsMapper {
     return logDirsInfo.entrySet().stream().map(
         mapEntry -> mapEntry.getValue().entrySet().stream()
             .map(e -> toBrokerLogDirs(mapEntry.getKey(), e.getKey(), e.getValue()))
-            .collect(Collectors.toList())
+            .toList()
     ).flatMap(Collection::stream).collect(Collectors.toList());
   }
 
@@ -28,13 +29,13 @@ public class DescribeLogDirsMapper {
                                             DescribeLogDirsResponse.LogDirInfo logDirInfo) {
     BrokersLogdirsDTO result = new BrokersLogdirsDTO();
     result.setName(dirName);
-    if (logDirInfo.error != null) {
+    if (logDirInfo.error != null && logDirInfo.error != Errors.NONE) {
       result.setError(logDirInfo.error.message());
     }
     var topics = logDirInfo.replicaInfos.entrySet().stream()
         .collect(Collectors.groupingBy(e -> e.getKey().topic())).entrySet().stream()
         .map(e -> toTopicLogDirs(broker, e.getKey(), e.getValue()))
-        .collect(Collectors.toList());
+        .toList();
     result.setTopics(topics);
     return result;
   }
@@ -47,7 +48,7 @@ public class DescribeLogDirsMapper {
     topic.setPartitions(
         partitions.stream().map(
             e -> topicPartitionLogDir(
-                broker, e.getKey().partition(), e.getValue())).collect(Collectors.toList())
+                broker, e.getKey().partition(), e.getValue())).toList()
     );
     return topic;
   }

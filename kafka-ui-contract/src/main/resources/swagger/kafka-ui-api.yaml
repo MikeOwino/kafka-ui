@@ -4,10 +4,10 @@ info:
   version: 0.1.0
   title: Api Documentation
   termsOfService: urn:tos
-  contact: {}
+  contact: { }
   license:
     name: Apache 2.0
-    url: http://www.apache.org/licenses/LICENSE-2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0
 tags:
   - name: /api/clusters
   - name: /api/clusters/connects
@@ -592,6 +592,58 @@ paths:
                 $ref: '#/components/schemas/ReplicationFactorChangeResponse'
         404:
           description: Not found
+        400:
+          description: Bad Request
+
+  /api/clusters/{clusterName}/topic/{topicName}/serdes:
+    get:
+      tags:
+        - Messages
+      summary: getSerdes
+      operationId: getSerdes
+      parameters:
+        - name: clusterName
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: topicName
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: use
+          in: query
+          required: true
+          schema:
+            $ref: '#/components/schemas/SerdeUsage'
+      responses:
+        200:
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TopicSerdeSuggestion'
+
+  /api/smartfilters/testexecutions:
+    put:
+      tags:
+        - Messages
+      summary: executeSmartFilterTest
+      operationId: executeSmartFilterTest
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SmartFilterTestExecution'
+      responses:
+        200:
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SmartFilterTestExecutionResult'
+
 
   /api/clusters/{clusterName}/topics/{topicName}/messages:
     get:
@@ -637,6 +689,16 @@ paths:
           in: query
           schema:
             $ref: "#/components/schemas/SeekDirection"
+        - name: keySerde
+          in: query
+          description: "Serde that should be used for deserialization. Will be chosen automatically if not set."
+          schema:
+            type: string
+        - name: valueSerde
+          in: query
+          description: "Serde that should be used for deserialization. Will be chosen automatically if not set."
+          schema:
+            type: string
       responses:
         200:
           description: OK
@@ -701,12 +763,12 @@ paths:
         404:
           description: Not found
 
-  /api/clusters/{clusterName}/topics/{topicName}/messages/schema:
+  /api/clusters/{clusterName}/topics/{topicName}/activeproducers:
     get:
       tags:
-        - Messages
-      summary: getTopicSchema
-      operationId: getTopicSchema
+        - Topics
+      summary: get producer states for topic
+      operationId: getActiveProducerStates
       parameters:
         - name: clusterName
           in: path
@@ -724,7 +786,9 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/TopicMessageSchema'
+                type: array
+                items:
+                  $ref: '#/components/schemas/TopicProducerState'
 
   /api/clusters/{clusterName}/topics/{topicName}/consumer-groups:
     get:
@@ -757,7 +821,7 @@ paths:
     get:
       tags:
         - Consumer Groups
-      summary: Get consumer croups with paging support
+      summary: Get consumer groups with paging support
       operationId: getConsumerGroupsPage
       parameters:
         - name: clusterName
@@ -844,28 +908,6 @@ paths:
         200:
           description: OK
 
-  /api/clusters/{clusterName}/consumer-groups:
-    get:
-      tags:
-        - Consumer Groups
-      summary: get all ConsumerGroups
-      operationId: getConsumerGroups
-      parameters:
-        - name: clusterName
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        200:
-          description: OK
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/ConsumerGroup'
-
   /api/clusters/{clusterName}/consumer-groups/{id}/offsets:
     post:
       tags:
@@ -896,7 +938,7 @@ paths:
     post:
       tags:
         - Schemas
-      summary: create a new subject schema
+      summary: create a new subject schema or update existing subject schema
       operationId: createNewSchema
       parameters:
         - name: clusterName
@@ -1249,6 +1291,16 @@ paths:
           required: false
           schema:
             type: string
+        - name: orderBy
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/ConnectorColumnsToSort'
+        - name: sortOrder
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/SortOrder'
       responses:
         200:
           description: OK
@@ -1533,31 +1585,6 @@ paths:
         200:
           description: OK
 
-  /api/clusters/{clusterName}/ksql:
-    description: Deprecated - use ksql/v2 instead!
-    post:
-      tags:
-        - Ksql
-      summary: executeKsqlCommand
-      operationId: executeKsqlCommand
-      parameters:
-        - name: clusterName
-          in: path
-          required: true
-          schema:
-            type: string
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/KsqlCommand'
-      responses:
-        200:
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/KsqlCommandResponse'
 
   /api/clusters/{clusterName}/ksql/v2:
     post:
@@ -1749,8 +1776,323 @@ paths:
         404:
           description: Not found
 
+  /api/clusters/{clusterName}/acls:
+    get:
+      tags:
+        - Acls
+      summary: listKafkaAcls
+      operationId: listAcls
+      parameters:
+        - name: clusterName
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: resourceType
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/KafkaAclResourceType'
+        - name: resourceName
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: namePatternType
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/KafkaAclNamePatternType'
+      responses:
+        200:
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/KafkaAcl'
+
+  /api/clusters/{clusterName}/acl/csv:
+    get:
+      tags:
+        - Acls
+      summary: getAclAsCsv
+      operationId: getAclAsCsv
+      parameters:
+        - name: clusterName
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: OK
+          content:
+            text/plain:
+              schema:
+                type: string
+    post:
+      tags:
+        - Acls
+      summary: syncAclsCsv
+      operationId: syncAclsCsv
+      parameters:
+        - name: clusterName
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          text/plain:
+            schema:
+              type: string
+      responses:
+        200:
+          description: OK
+
+  /api/clusters/{clusterName}/acl:
+    post:
+      tags:
+        - Acls
+      summary: createAcl
+      operationId: createAcl
+      parameters:
+        - name: clusterName
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/KafkaAcl'
+      responses:
+        200:
+          description: OK
+
+    delete:
+      tags:
+        - Acls
+      summary: deleteAcl
+      operationId: deleteAcl
+      parameters:
+        - name: clusterName
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/KafkaAcl'
+      responses:
+        200:
+          description: OK
+        404:
+          description: Acl not found
+
+  /api/clusters/{clusterName}/acl/consumer:
+    post:
+      tags:
+        - Acls
+      summary: createConsumerAcl
+      operationId: createConsumerAcl
+      parameters:
+        - name: clusterName
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateConsumerAcl'
+      responses:
+        200:
+          description: OK
+
+  /api/clusters/{clusterName}/acl/producer:
+    post:
+      tags:
+        - Acls
+      summary: createProducerAcl
+      operationId: createProducerAcl
+      parameters:
+        - name: clusterName
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateProducerAcl'
+      responses:
+        200:
+          description: OK
+
+  /api/clusters/{clusterName}/acl/streamApp:
+    post:
+      tags:
+        - Acls
+      summary: createStreamAppAcl
+      operationId: createStreamAppAcl
+      parameters:
+        - name: clusterName
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateStreamAppAcl'
+      responses:
+        200:
+          description: OK
+
+  /api/authorization:
+    get:
+      tags:
+        - Authorization
+      summary: Get user authentication related info
+      operationId: getUserAuthInfo
+      responses:
+        200:
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthenticationInfo'
+
+  /api/info:
+    get:
+      tags:
+        - ApplicationConfig
+      summary: Gets application info
+      operationId: getApplicationInfo
+      responses:
+        200:
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApplicationInfo'
+
+  /api/config:
+    get:
+      tags:
+        - ApplicationConfig
+      summary: Gets current application configuration
+      operationId: getCurrentConfig
+      responses:
+        200:
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApplicationConfig'
+    put:
+      tags:
+        - ApplicationConfig
+      summary: Restarts application with specified configuration
+      operationId: restartWithConfig
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RestartRequest'
+      responses:
+        200:
+          description: OK
+
+  /api/config/validated:
+    put:
+      tags:
+        - ApplicationConfig
+      summary: Restarts application with specified configuration
+      operationId: validateConfig
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApplicationConfig'
+      responses:
+        200:
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApplicationConfigValidation'
+
+
+  /api/config/relatedfiles:
+    post:
+      tags:
+        - ApplicationConfig
+      summary: Restarts application with specified configuration
+      operationId: uploadConfigRelatedFile
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        200:
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadedFileInfo'
+
 components:
   schemas:
+    TopicSerdeSuggestion:
+      type: object
+      properties:
+        key:
+          type: array
+          items:
+            $ref: '#/components/schemas/SerdeDescription'
+        value:
+          type: array
+          items:
+            $ref: '#/components/schemas/SerdeDescription'
+
+    SerdeDescription:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        preferred:
+          description: "This serde was automatically chosen by cluster config. This should be enabled in UI by default. Also it will be used for deserialization if no serdes passed."
+          type: boolean
+        schema:
+          type: string
+        additionalProperties:
+          type: object
+          additionalProperties:
+            type: object
+
+    SerdeUsage:
+      type: string
+      enum:
+        - SERIALIZE
+        - DESERIALIZE
+
     ErrorResponse:
       description: Error object that will be returned with 4XX and 5XX HTTP statuses
       type: object
@@ -1794,6 +2136,36 @@ components:
         stackTrace:
           type: string
 
+    ApplicationInfo:
+      type: object
+      properties:
+        enabledFeatures:
+          type: array
+          items:
+            type: string
+            enum:
+              - DYNAMIC_CONFIG
+        build:
+          type: object
+          properties:
+            commitId:
+              type: string
+            version:
+              type: string
+            buildTime:
+              type: string
+            isLatestRelease:
+              type: boolean
+        latestRelease:
+          type: object
+          properties:
+            versionTag:
+              type: string
+            publishedAt:
+              type: string
+            htmlUrl:
+              type: string
+
     Cluster:
       type: object
       properties:
@@ -1828,6 +2200,8 @@ components:
               - KAFKA_CONNECT
               - KSQL_DB
               - TOPIC_DELETION
+              - KAFKA_ACL_VIEW # get ACLs listing
+              - KAFKA_ACL_EDIT # create & delete ACLs
       required:
         - id
         - name
@@ -1858,6 +2232,7 @@ components:
           deprecated: true
         activeControllers:
           type: integer
+          description: Id of broker which is cluster's controller. null, if controller not known yet.
         onlinePartitionCount:
           type: integer
         offlinePartitionCount:
@@ -1944,6 +2319,14 @@ components:
         - REPLICATION_FACTOR
         - SIZE
 
+    ConnectorColumnsToSort:
+      type: string
+      enum:
+        - NAME
+        - CONNECT
+        - TYPE
+        - STATUS
+
     SortOrder:
       type: string
       enum:
@@ -1970,6 +2353,10 @@ components:
           format: int64
         segmentCount:
           type: integer
+        bytesInPerSec:
+          type: number
+        bytesOutPerSec:
+          type: number
         underReplicatedPartitions:
           type: integer
         cleanUpPolicy:
@@ -2147,6 +2534,10 @@ components:
           type: integer
         cleanUpPolicy:
           $ref: '#/components/schemas/CleanUpPolicy'
+        keySerde:
+          type: string
+        valueSerde:
+          type: string
       required:
         - name
 
@@ -2169,6 +2560,8 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/ConfigSynonym"
+        doc:
+          type: string
       required:
         - name
 
@@ -2188,7 +2581,6 @@ components:
       required:
         - name
         - partitions
-        - replicationFactor
 
     TopicUpdate:
       type: object
@@ -2209,6 +2601,20 @@ components:
           type: string
         port:
           type: integer
+        bytesInPerSec:
+          type: number
+        bytesOutPerSec:
+          type: number
+        partitionsLeader:
+          type: integer
+        partitions:
+          type: integer
+        inSyncPartitions:
+          type: integer
+        partitionsSkew:
+          type: number
+        leadersSkew:
+          type: number
       required:
         - id
 
@@ -2240,7 +2646,36 @@ components:
         - PROTOBUF
         - UNKNOWN
 
+    TopicProducerState:
+      type: object
+      properties:
+        partition:
+          type: integer
+          format: int32
+        producerId:
+          type: integer
+          format: int64
+        producerEpoch:
+          type: integer
+          format: int32
+        lastSequence:
+          type: integer
+          format: int32
+        lastTimestampMs:
+          type: integer
+          format: int64
+        coordinatorEpoch:
+          type: integer
+          format: int32
+        currentTransactionStartOffset:
+          type: integer
+          format: int64
+
     ConsumerGroup:
+      discriminator:
+        propertyName: inherit
+        mapping:
+          details: "#/components/schemas/ConsumerGroupDetails"
       type: object
       properties:
         groupId:
@@ -2257,9 +2692,10 @@ components:
           $ref: "#/components/schemas/ConsumerGroupState"
         coordinator:
           $ref: "#/components/schemas/Broker"
-        messagesBehind:
+        consumerLag:
           type: integer
           format: int64
+          description: null if consumer group has no offsets committed
       required:
         - groupId
 
@@ -2269,6 +2705,8 @@ components:
         - NAME
         - MEMBERS
         - STATE
+        - MESSAGES_BEHIND
+        - TOPIC_NUM
 
     ConsumerGroupsPageResponse:
       type: object
@@ -2279,6 +2717,37 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/ConsumerGroup'
+
+    SmartFilterTestExecution:
+      type: object
+      required: [filterCode]
+      properties:
+        filterCode:
+          type: string
+        key:
+          type: string
+        value:
+          type: string
+        headers:
+          type: object
+          additionalProperties:
+            type: string
+        partition:
+          type: integer
+        offset:
+          type: integer
+          format: int64
+        timestampMs:
+          type: integer
+          format: int64
+
+    SmartFilterTestExecutionResult:
+      type: object
+      properties:
+        result:
+          type: boolean
+        error:
+          type: string
 
     CreateTopicMessage:
       type: object
@@ -2295,37 +2764,14 @@ components:
         content:
           type: string
           nullable: true
+        keySerde:
+          type: string
+          nullable: true
+        valueSerde:
+          type: string
+          nullable: true
       required:
         - partition
-
-    TopicMessageSchema:
-      type: object
-      properties:
-        key:
-          $ref: "#/components/schemas/MessageSchema"
-        value:
-          $ref: "#/components/schemas/MessageSchema"
-      required:
-        - key
-        - value
-
-    MessageSchema:
-      type: object
-      properties:
-        name:
-          type: string
-        source:
-          type: string
-          enum:
-            - SOURCE_SCHEMA_REGISTRY
-            - SOURCE_PROTO_FILE
-            - SOURCE_UNKNOWN
-        schema:
-          type: string
-      required:
-        - name
-        - source
-        - schema
 
     TopicMessageEvent:
       type: object
@@ -2351,6 +2797,12 @@ components:
         name:
           type: string
 
+    TimeStampFormat:
+      type: object
+      properties:
+        timeStampFormat:
+          type: string
+
     TopicMessageConsuming:
       type: object
       properties:
@@ -2363,6 +2815,8 @@ components:
         isCancelled:
           type: boolean
         messagesConsumed:
+          type: integer
+        filterApplyErrors:
           type: integer
 
 
@@ -2392,8 +2846,10 @@ components:
         content:
           type: string
         keyFormat:
+          #deprecated - wont be filled - use 'keySerde' field instead
           $ref: "#/components/schemas/MessageFormat"
         valueFormat:
+          #deprecated - wont be filled - use 'valueSerde' field instead
           $ref: "#/components/schemas/MessageFormat"
         keySize:
           type: integer
@@ -2402,12 +2858,26 @@ components:
           type: integer
           format: int64
         keySchemaId:
+          deprecated: true
+          description: deprecated - wont be filled - use 'keyDeserializeProperties' field instead
           type: string
         valueSchemaId:
+          deprecated: true
+          description: deprecated - wont be filled - use 'valueDeserializeProperties' field instead
           type: string
         headersSize:
           type: integer
           format: int64
+        keySerde:
+          type: string
+        valueSerde:
+          type: string
+        keyDeserializeProperties:
+          additionalProperties:
+            type: object
+        valueDeserializeProperties:
+          additionalProperties:
+            type: object
       required:
         - partition
         - offset
@@ -2471,9 +2941,10 @@ components:
         endOffset:
           type: integer
           format: int64
-        messagesBehind:
+        consumerLag:
           type: integer
           format: int64
+          description: null if consumer group has no offsets committed
         consumerId:
           type: string
         host:
@@ -2498,16 +2969,12 @@ components:
       properties:
         name:
           type: string
-        canonicalName:
-          type: string
-        params:
+        labels:
           type: string
           additionalProperties:
             type: string
         value:
-          type: string
-          additionalProperties:
-            type: number
+          type: number
 
     TopicLogdirs:
       type: object
@@ -2564,6 +3031,10 @@ components:
           type: string
         schemaType:
           $ref: '#/components/schemas/SchemaType'
+        references:
+          type: array
+          items:
+            $ref: '#/components/schemas/SchemaReference'
       required:
         - id
         - subject
@@ -2574,17 +3045,36 @@ components:
 
     NewSchemaSubject:
       type: object
+      description: should be set for creating/updating schema subject
       properties:
         subject:
           type: string
         schema:
           type: string
         schemaType:
-          $ref: '#/components/schemas/SchemaType'
+          $ref: '#/components/schemas/SchemaType' # upon updating a schema, the type of existing schema can't be changed
+        references:
+          type: array
+          items:
+            $ref: '#/components/schemas/SchemaReference'
       required:
         - subject
         - schema
         - schemaType
+
+    SchemaReference:
+      type: object
+      properties:
+        name:
+          type: string
+        subject:
+          type: string
+        version:
+          type: integer
+      required:
+        - name
+        - subject
+        - version
 
     CompatibilityLevel:
       type: object
@@ -2604,6 +3094,7 @@ components:
 
     SchemaType:
       type: string
+      description: upon updating a schema, the type of an existing schema can't be changed
       enum:
         - AVRO
         - JSON
@@ -2896,18 +3387,6 @@ components:
           items:
             $ref: '#/components/schemas/ConnectorPluginConfig'
 
-    KsqlCommand:
-      type: object
-      properties:
-        ksql:
-          type: string
-        streamsProperties:
-          type: object
-          additionalProperties:
-            type: string
-      required:
-        - ksql
-
     KsqlCommandV2:
       type: object
       properties:
@@ -2953,31 +3432,6 @@ components:
           type: string
         valueFormat:
           type: string
-
-    KsqlCommandResponse:
-      type: object
-      properties:
-        data:
-          $ref: '#/components/schemas/Table'
-        message:
-          type: string
-
-    Table:
-      type: object
-      properties:
-        headers:
-          type: array
-          items:
-            type: string
-        rows:
-          type: array
-          items:
-            type: array
-            items:
-              type: string
-      required:
-        - headers
-        - rows
 
     KsqlResponse:
       type: object
@@ -3052,7 +3506,6 @@ components:
       properties:
         totalReplicationFactor:
           type: integer
-          minimum: 1
       required:
         - totalReplicationFactor
 
@@ -3125,3 +3578,514 @@ components:
         - COMPACT
         - COMPACT_DELETE
         - UNKNOWN
+
+    AuthenticationInfo:
+      type: object
+      properties:
+        rbacEnabled:
+          type: boolean
+          description: true if role based access control is enabled and granular permission access is required
+        userInfo:
+          $ref: '#/components/schemas/UserInfo'
+      required:
+        - rbacEnabled
+
+    UserInfo:
+      type: object
+      properties:
+        username:
+          type: string
+        permissions:
+          type: array
+          items:
+            $ref: '#/components/schemas/UserPermission'
+      required:
+        - username
+        - permissions
+
+    UserPermission:
+      type: object
+      properties:
+        clusters:
+          type: array
+          items:
+            type: string
+        resource:
+          $ref: '#/components/schemas/ResourceType'
+        value:
+          type: string
+        actions:
+          type: array
+          items:
+            $ref: '#/components/schemas/Action'
+      required:
+        - clusters
+        - resource
+        - actions
+
+    Action:
+      type: string
+      enum:
+        - VIEW
+        - EDIT
+        - CREATE
+        - DELETE
+        - RESET_OFFSETS
+        - EXECUTE
+        - MODIFY_GLOBAL_COMPATIBILITY
+        - ANALYSIS_VIEW
+        - ANALYSIS_RUN
+        - MESSAGES_READ
+        - MESSAGES_PRODUCE
+        - MESSAGES_DELETE
+        - RESTART
+
+    ResourceType:
+      type: string
+      enum:
+        - APPLICATIONCONFIG
+        - CLUSTERCONFIG
+        - TOPIC
+        - CONSUMER
+        - SCHEMA
+        - CONNECT
+        - KSQL
+        - ACL
+        - AUDIT
+
+    KafkaAcl:
+      type: object
+      required: [resourceType, resourceName, namePatternType, principal, host, operation, permission]
+      properties:
+        resourceType:
+          $ref: '#/components/schemas/KafkaAclResourceType'
+        resourceName:
+          type: string # "*" if acl can be applied to any resource of given type
+        namePatternType:
+          $ref: '#/components/schemas/KafkaAclNamePatternType'
+        principal:
+          type: string
+        host:
+          type: string
+        operation:
+          type: string
+          enum:
+            - UNKNOWN # Unknown operation, need to update mapping code on BE
+            - ALL # Cluster, Topic, Group
+            - READ  # Topic, Group
+            - WRITE # Topic, TransactionalId
+            - CREATE # Cluster, Topic
+            - DELETE  # Topic, Group
+            - ALTER  # Cluster, Topic,
+            - DESCRIBE # Cluster, Topic, Group, TransactionalId, DelegationToken
+            - CLUSTER_ACTION # Cluster
+            - DESCRIBE_CONFIGS # Cluster, Topic
+            - ALTER_CONFIGS   # Cluster, Topic
+            - IDEMPOTENT_WRITE # Cluster
+            - CREATE_TOKENS
+            - DESCRIBE_TOKENS
+        permission:
+          type: string
+          enum:
+            - ALLOW
+            - DENY
+
+    CreateConsumerAcl:
+      type: object
+      required: [principal, host]
+      properties:
+        principal:
+          type: string
+        host:
+          type: string
+        topics:
+          type: array
+          items:
+            type: string
+        topicsPrefix:
+          type: string
+        consumerGroups:
+          type: array
+          items:
+            type: string
+        consumerGroupsPrefix:
+          type: string
+
+    CreateProducerAcl:
+      type: object
+      required: [principal, host]
+      properties:
+        principal:
+          type: string
+        host:
+          type: string
+        topics:
+          type: array
+          items:
+            type: string
+        topicsPrefix:
+          type: string
+        transactionalId:
+          type: string
+        transactionsIdPrefix:
+          type: string
+        idempotent:
+          type: boolean
+          default: false
+
+    CreateStreamAppAcl:
+      type: object
+      required: [principal, host, applicationId, inputTopics, outputTopics]
+      properties:
+        principal:
+          type: string
+        host:
+          type: string
+        inputTopics:
+          type: array
+          items:
+            type: string
+        outputTopics:
+          type: array
+          items:
+            type: string
+        applicationId:
+          nullable: false
+          type: string
+
+    KafkaAclResourceType:
+      type: string
+      enum:
+        - UNKNOWN # Unknown operation, need to update mapping code on BE
+        - TOPIC
+        - GROUP
+        - CLUSTER
+        - TRANSACTIONAL_ID
+        - DELEGATION_TOKEN
+        - USER
+
+    KafkaAclNamePatternType:
+      type: string
+      enum:
+        - MATCH
+        - LITERAL
+        - PREFIXED
+
+    RestartRequest:
+      type: object
+      properties:
+        config:
+          $ref: '#/components/schemas/ApplicationConfig'
+
+    UploadedFileInfo:
+      type: object
+      required: [location]
+      properties:
+        location:
+          type: string
+
+    ApplicationConfigValidation:
+      type: object
+      properties:
+        clusters:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/ClusterConfigValidation'
+
+    ApplicationPropertyValidation:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: boolean
+        errorMessage:
+          type: string
+          description: Contains error message if error = true
+
+    ClusterConfigValidation:
+      type: object
+      required: [kafka]
+      properties:
+        kafka:
+          $ref: '#/components/schemas/ApplicationPropertyValidation'
+        schemaRegistry:
+          $ref: '#/components/schemas/ApplicationPropertyValidation'
+        kafkaConnects:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/ApplicationPropertyValidation'
+        ksqldb:
+          $ref: '#/components/schemas/ApplicationPropertyValidation'
+
+    ApplicationConfig:
+      type: object
+      properties:
+        properties:
+          type: object
+          properties:
+            auth:
+              type: object
+              properties:
+                type:
+                  type: string
+                oauth2:
+                  type: object
+                  properties:
+                    client:
+                      type: object
+                      additionalProperties:
+                        type: object
+                        properties:
+                          provider:
+                            type: string
+                          clientId:
+                            type: string
+                          clientSecret:
+                            type: string
+                          clientName:
+                            type: string
+                          redirectUri:
+                            type: string
+                          authorizationGrantType:
+                            type: string
+                          issuerUri:
+                            type: string
+                          authorizationUri:
+                            type: string
+                          tokenUri:
+                            type: string
+                          userInfoUri:
+                            type: string
+                          jwkSetUri:
+                            type: string
+                          userNameAttribute:
+                            type: string
+                          scope:
+                            type: array
+                            items:
+                              type: string
+                          customParams:
+                            type: object
+                            additionalProperties:
+                              type: string
+            rbac:
+              type: object
+              properties:
+                roles:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      name:
+                        type: string
+                      clusters:
+                        type: array
+                        items:
+                          type: string
+                      subjects:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            provider:
+                              type: string
+                            type:
+                              type: string
+                            value:
+                              type: string
+                      permissions:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            resource:
+                              $ref: '#/components/schemas/ResourceType'
+                            value:
+                              type: string
+                            actions:
+                              type: array
+                              items:
+                                $ref: '#/components/schemas/Action'
+            webclient:
+              type: object
+              properties:
+                maxInMemoryBufferSize:
+                  type: string
+                  description: "examples: 20, 12KB, 5MB"
+            kafka:
+              type: object
+              properties:
+                polling:
+                  type: object
+                  properties:
+                    pollTimeoutMs:
+                      type: integer
+                    maxPageSize:
+                      type: integer
+                    defaultPageSize:
+                      type: integer
+                adminClientTimeout:
+                  type: integer
+                internalTopicPrefix:
+                  type: string
+                clusters:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      name:
+                        type: string
+                      bootstrapServers:
+                        type: string
+                      ssl:
+                        type: object
+                        properties:
+                          truststoreLocation:
+                            type: string
+                          truststorePassword:
+                            type: string
+                      schemaRegistry:
+                        type: string
+                      schemaRegistryAuth:
+                        type: object
+                        properties:
+                          username:
+                            type: string
+                          password:
+                            type: string
+                      schemaRegistrySsl:
+                        type: object
+                        properties:
+                          keystoreLocation:
+                            type: string
+                          keystorePassword:
+                            type: string
+                      ksqldbServer:
+                        type: string
+                      ksqldbServerSsl:
+                        type: object
+                        properties:
+                          keystoreLocation:
+                            type: string
+                          keystorePassword:
+                              type: string
+                      ksqldbServerAuth:
+                        type: object
+                        properties:
+                          username:
+                            type: string
+                          password:
+                            type: string
+                      kafkaConnect:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            name:
+                              type: string
+                            address:
+                              type: string
+                            username:
+                              type: string
+                            password:
+                              type: string
+                            keystoreLocation:
+                              type: string
+                            keystorePassword:
+                              type: string
+
+                      metrics:
+                        type: object
+                        properties:
+                          type:
+                            type: string
+                          port:
+                            type: integer
+                            format: int32
+                          ssl:
+                            type: boolean
+                          username:
+                            type: string
+                          password:
+                            type: string
+                          keystoreLocation:
+                            type: string
+                          keystorePassword:
+                            type: string
+                      properties:
+                        type: object
+                        additionalProperties: true
+                      readOnly:
+                        type: boolean
+                      disableLogDirsCollection:
+                        type: boolean
+                      serde:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            name:
+                              type: string
+                            className:
+                              type: string
+                            filePath:
+                              type: string
+                            properties:
+                              type: object
+                              additionalProperties: true
+                            topicKeysPattern:
+                              type: string
+                            topicValuesPattern:
+                              type: string
+                      defaultKeySerde:
+                        type: string
+                      defaultValueSerde:
+                        type: string
+                      masking:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            type:
+                              type: string
+                              enum:
+                                - REMOVE
+                                - MASK
+                                - REPLACE
+                            fields:
+                              type: array
+                              items:
+                                type: string
+                            fieldsNamePattern:
+                              type: string
+                            maskingCharsReplacement:
+                              type: array
+                              items:
+                                type: string
+                            replacement:
+                              type: string
+                            topicKeysPattern:
+                              type: string
+                            topicValuesPattern:
+                              type: string
+                      pollingThrottleRate:
+                        type: integer
+                        format: int64
+                      audit:
+                        type: object
+                        properties:
+                          level:
+                            type: string
+                            enum: [ "ALL", "ALTER_ONLY" ]
+                          topic:
+                            type: string
+                          auditTopicsPartitions:
+                            type: integer
+                          topicAuditEnabled:
+                            type: boolean
+                          consoleAuditEnabled:
+                            type: boolean
+                          auditTopicProperties:
+                            type: object
+                            additionalProperties:
+                              type: string

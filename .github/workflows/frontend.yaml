@@ -1,4 +1,4 @@
-name: frontend
+name: "Frontend: PR/master build & test"
 on:
   push:
     branches:
@@ -8,6 +8,9 @@ on:
     paths:
       - "kafka-ui-contract/**"
       - "kafka-ui-react-app/**"
+permissions:
+  checks: write
+  pull-requests: write
 jobs:
   build-and-test:
     env:
@@ -20,13 +23,13 @@ jobs:
           # Disabling shallow clone is recommended for improving relevancy of reporting
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha }}
-      - uses: pnpm/action-setup@v2.0.1
+      - uses: pnpm/action-setup@v2.4.0
         with:
-          version: 7.4.0
+          version: 8.6.12
       - name: Install node
-        uses: actions/setup-node@v3.1.1
+        uses: actions/setup-node@v3.8.1
         with:
-          node-version: "16.15.0"
+          node-version: "18.17.1"
           cache: "pnpm"
           cache-dependency-path: "./kafka-ui-react-app/pnpm-lock.yaml"
       - name: Install Node dependencies
@@ -46,7 +49,7 @@ jobs:
           cd kafka-ui-react-app/
           pnpm test:CI
       - name: SonarCloud Scan
-        uses: workshur/sonarcloud-github-action@improved_basedir
+        uses: sonarsource/sonarcloud-github-action@master
         with:
           projectBaseDir: ./kafka-ui-react-app
           args: -Dsonar.pullrequest.key=${{ github.event.pull_request.number }} -Dsonar.pullrequest.branch=${{ github.head_ref }} -Dsonar.pullrequest.base=${{ github.base_ref }}

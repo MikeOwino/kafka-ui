@@ -5,17 +5,19 @@ import com.provectus.kafka.ui.exception.LogDirNotFoundApiException;
 import com.provectus.kafka.ui.exception.NotFoundException;
 import com.provectus.kafka.ui.exception.TopicOrPartitionNotFoundException;
 import com.provectus.kafka.ui.mapper.DescribeLogDirsMapper;
-import com.provectus.kafka.ui.model.BrokerDTO;
 import com.provectus.kafka.ui.model.BrokerLogdirUpdateDTO;
 import com.provectus.kafka.ui.model.BrokersLogdirsDTO;
+import com.provectus.kafka.ui.model.InternalBroker;
 import com.provectus.kafka.ui.model.InternalBrokerConfig;
-import com.provectus.kafka.ui.model.JmxBrokerMetrics;
 import com.provectus.kafka.ui.model.KafkaCluster;
+import com.provectus.kafka.ui.model.PartitionDistributionStats;
+import com.provectus.kafka.ui.service.metrics.RawMetric;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.admin.ConfigEntry;
@@ -35,7 +37,7 @@ import reactor.core.publisher.Mono;
 @Slf4j
 public class BrokerService {
 
-  private final MetricsCache metricsCache;
+  private final StatisticsCache statisticsCache;
   private final AdminClientService adminClientService;
   private final DescribeLogDirsMapper describeLogDirsMapper;
 
@@ -47,14 +49,11 @@ public class BrokerService {
   private Mono<List<ConfigEntry>> loadBrokersConfig(
       KafkaCluster cluster, Integer brokerId) {
     return loadBrokersConfig(cluster, Collections.singletonList(brokerId))
-        .map(map -> map.values().stream()
-            .findFirst()
-            .orElseThrow(() -> new NotFoundException(
-                String.format("Config for broker %s not found", brokerId))));
+        .map(map -> map.values().stream().findFirst().orElse(List.of()));
   }
 
   private Flux<InternalBrokerConfig> getBrokersConfig(KafkaCluster cluster, Integer brokerId) {
-    if (metricsCache.get(cluster).getClusterDescription().getNodes()
+    if (statisticsCache.get(cluster).getClusterDescription().getNodes()
         .stream().noneMatch(node -> node.id() == brokerId)) {
       return Flux.error(
           new NotFoundException(String.format("Broker with id %s not found", brokerId)));
@@ -66,26 +65,16 @@ public class BrokerService {
         .flatMapMany(Flux::fromIterable);
   }
 
-  public Flux<BrokerDTO> getBrokers(KafkaCluster cluster) {
+  public Flux<InternalBroker> getBrokers(KafkaCluster cluster) {
+    var stats = statisticsCache.get(cluster);
+    var partitionsDistribution = PartitionDistributionStats.create(stats);
     return adminClientService
         .get(cluster)
         .flatMap(ReactiveAdminClient::describeCluster)
         .map(description -> description.getNodes().stream()
-            .map(node -> {
-              BrokerDTO broker = new BrokerDTO();
-              broker.setId(node.id());
-              broker.setHost(node.host());
-              broker.setPort(node.port());
-              return broker;
-            }).collect(Collectors.toList()))
+            .map(node -> new InternalBroker(node, partitionsDistribution, stats))
+            .collect(Collectors.toList()))
         .flatMapMany(Flux::fromIterable);
-  }
-
-  public Mono<Node> getController(KafkaCluster cluster) {
-    return adminClientService
-        .get(cluster)
-        .flatMap(ReactiveAdminClient::describeCluster)
-        .map(ReactiveAdminClient.ClusterDescription::getController);
   }
 
   public Mono<Void> updateBrokerLogDir(KafkaCluster cluster,
@@ -125,11 +114,11 @@ public class BrokerService {
       KafkaCluster cluster, List<Integer> reqBrokers) {
     return adminClientService.get(cluster)
         .flatMap(admin -> {
-          List<Integer> brokers = metricsCache.get(cluster).getClusterDescription().getNodes()
+          List<Integer> brokers = statisticsCache.get(cluster).getClusterDescription().getNodes()
               .stream()
               .map(Node::id)
               .collect(Collectors.toList());
-          if (reqBrokers != null && !reqBrokers.isEmpty()) {
+          if (!reqBrokers.isEmpty()) {
             brokers.retainAll(reqBrokers);
           }
           return admin.describeLogDirs(brokers);
@@ -150,9 +139,8 @@ public class BrokerService {
     return getBrokersConfig(cluster, brokerId);
   }
 
-  public Mono<JmxBrokerMetrics> getBrokerMetrics(KafkaCluster cluster, Integer brokerId) {
-    return Mono.justOrEmpty(
-            metricsCache.get(cluster).getJmxMetrics().getInternalBrokerMetrics().get(brokerId));
+  public Mono<List<RawMetric>> getBrokerMetrics(KafkaCluster cluster, Integer brokerId) {
+    return Mono.justOrEmpty(statisticsCache.get(cluster).getMetrics().getPerBrokerMetrics().get(brokerId));
   }
 
 }

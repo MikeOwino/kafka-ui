@@ -10,16 +10,12 @@ management:
   endpoints:
     web:
       exposure:
-        include: "info,health"
-  health:
-    ldap:
-      enabled: false
+        include: "info,health,prometheus"
 
 logging:
   level:
     root: INFO
     com.provectus: DEBUG
-    #org.springframework.http.codec.json.Jackson2JsonEncoder: DEBUG
-    #org.springframework.http.codec.json.Jackson2JsonDecoder: DEBUG
     reactor.netty.http.server.AccessLog: INFO
+    org.hibernate.validator: WARN
 

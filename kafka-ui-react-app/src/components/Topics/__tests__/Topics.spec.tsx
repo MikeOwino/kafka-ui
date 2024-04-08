@@ -10,14 +10,14 @@ import {
   getNonExactPath,
 } from 'lib/paths';
 
-const listContainer = 'listContainer';
-const topicContainer = 'topicContainer';
-const newCopyContainer = 'newCopyContainer';
+const listContainer = 'My List Page';
+const topicContainer = 'My Topic Details Page';
+const newCopyContainer = 'My New/Copy Page';
 
-jest.mock('components/Topics/List/ListContainer', () => () => (
+jest.mock('components/Topics/List/ListPage', () => () => (
   <div>{listContainer}</div>
 ));
-jest.mock('components/Topics/Topic/TopicContainer', () => () => (
+jest.mock('components/Topics/Topic/Topic', () => () => (
   <div>{topicContainer}</div>
 ));
 jest.mock('components/Topics/New/New', () => () => (
@@ -27,14 +27,13 @@ jest.mock('components/Topics/New/New', () => () => (
 describe('Topics Component', () => {
   const clusterName = 'clusterName';
   const topicName = 'topicName';
-  const setUpComponent = (path: string) => {
-    return render(
+  const setUpComponent = (path: string) =>
+    render(
       <WithRoute path={getNonExactPath(clusterTopicsPath())}>
         <Topics />
       </WithRoute>,
       { initialEntries: [path] }
     );
-  };
 
   it('should check if the page is Topics List rendered', () => {
     setUpComponent(clusterTopicsPath(clusterName));

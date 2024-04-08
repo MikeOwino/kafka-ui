@@ -1,24 +1,28 @@
 import React from 'react';
 import { ClusterName } from 'redux/interfaces';
-import BytesFormatted from 'components/common/BytesFormatted/BytesFormatted';
-import { NavLink, useNavigate } from 'react-router-dom';
-import TableHeaderCell from 'components/common/table/TableHeaderCell/TableHeaderCell';
-import { Table } from 'components/common/table/Table/Table.styled';
+import { useNavigate } from 'react-router-dom';
 import PageHeading from 'components/common/PageHeading/PageHeading';
 import * as Metrics from 'components/common/Metrics';
 import useAppParams from 'lib/hooks/useAppParams';
-import useBrokers from 'lib/hooks/useBrokers';
-import useClusterStats from 'lib/hooks/useClusterStats';
+import { useBrokers } from 'lib/hooks/api/brokers';
+import { useClusterStats } from 'lib/hooks/api/clusters';
+import Table, { LinkCell, SizeCell } from 'components/common/NewTable';
+import CheckMarkRoundIcon from 'components/common/Icons/CheckMarkRoundIcon';
+import { ColumnDef } from '@tanstack/react-table';
+import { clusterBrokerPath } from 'lib/paths';
+import Tooltip from 'components/common/Tooltip/Tooltip';
+import ColoredCell from 'components/common/NewTable/ColoredCell';
 
-import { ClickableRow } from './BrokersList.style';
+import SkewHeader from './SkewHeader/SkewHeader';
+import * as S from './BrokersList.styled';
+
+const NA = 'N/A';
 
 const BrokersList: React.FC = () => {
   const navigate = useNavigate();
   const { clusterName } = useAppParams<{ clusterName: ClusterName }>();
-  const { data: clusterStats } = useClusterStats(clusterName);
+  const { data: clusterStats = {} } = useClusterStats(clusterName);
   const { data: brokers } = useBrokers(clusterName);
-
-  if (!clusterStats) return null;
 
   const {
     brokerCount,
@@ -32,20 +36,157 @@ const BrokersList: React.FC = () => {
     version,
   } = clusterStats;
 
+  const rows = React.useMemo(() => {
+    let brokersResource;
+    if (!diskUsage || !diskUsage?.length) {
+      brokersResource =
+        brokers?.map((broker) => {
+          return {
+            brokerId: broker.id,
+            segmentSize: NA,
+            segmentCount: NA,
+          };
+        }) || [];
+    } else {
+      brokersResource = diskUsage;
+    }
+
+    return brokersResource.map(({ brokerId, segmentSize, segmentCount }) => {
+      const broker = brokers?.find(({ id }) => id === brokerId);
+      return {
+        brokerId,
+        size: segmentSize || NA,
+        count: segmentCount || NA,
+        port: broker?.port,
+        host: broker?.host,
+        partitionsLeader: broker?.partitionsLeader,
+        partitionsSkew: broker?.partitionsSkew,
+        leadersSkew: broker?.leadersSkew,
+        inSyncPartitions: broker?.inSyncPartitions,
+      };
+    });
+  }, [diskUsage, brokers]);
+
+  const columns = React.useMemo<ColumnDef<(typeof rows)[number]>[]>(
+    () => [
+      {
+        header: 'Broker ID',
+        accessorKey: 'brokerId',
+        // eslint-disable-next-line react/no-unstable-nested-components
+        cell: ({ getValue }) => (
+          <S.RowCell>
+            <LinkCell
+              value={`${getValue<string | number>()}`}
+              to={encodeURIComponent(`${getValue<string | number>()}`)}
+            />
+            {getValue<string | number>() === activeControllers && (
+              <Tooltip
+                value={<CheckMarkRoundIcon />}
+                content="Active Controller"
+                placement="right"
+              />
+            )}
+          </S.RowCell>
+        ),
+      },
+      {
+        header: 'Disk usage',
+        accessorKey: 'size',
+        // eslint-disable-next-line react/no-unstable-nested-components
+        cell: ({ getValue, table, cell, column, renderValue, row }) =>
+          getValue() === NA ? (
+            NA
+          ) : (
+            <SizeCell
+              table={table}
+              column={column}
+              row={row}
+              cell={cell}
+              getValue={getValue}
+              renderValue={renderValue}
+              renderSegments
+              precision={2}
+            />
+          ),
+      },
+      {
+        // eslint-disable-next-line react/no-unstable-nested-components
+        header: () => <SkewHeader />,
+        accessorKey: 'partitionsSkew',
+        // eslint-disable-next-line react/no-unstable-nested-components
+        cell: ({ getValue }) => {
+          const value = getValue<number>();
+          return (
+            <ColoredCell
+              value={value ? `${value.toFixed(2)}%` : '-'}
+              warn={value >= 10 && value < 20}
+              attention={value >= 20}
+            />
+          );
+        },
+      },
+      { header: 'Leaders', accessorKey: 'partitionsLeader' },
+      {
+        header: 'Leader skew',
+        accessorKey: 'leadersSkew',
+        // eslint-disable-next-line react/no-unstable-nested-components
+        cell: ({ getValue }) => {
+          const value = getValue<number>();
+          return (
+            <ColoredCell
+              value={value ? `${value.toFixed(2)}%` : '-'}
+              warn={value >= 10 && value < 20}
+              attention={value >= 20}
+            />
+          );
+        },
+      },
+      {
+        header: 'Online partitions',
+        accessorKey: 'inSyncPartitions',
+        // eslint-disable-next-line react/no-unstable-nested-components
+        cell: ({ getValue, row }) => {
+          const value = getValue<number>();
+          return (
+            <ColoredCell
+              value={value}
+              attention={value !== row.original.count}
+            />
+          );
+        },
+      },
+      { header: 'Port', accessorKey: 'port' },
+      {
+        header: 'Host',
+        accessorKey: 'host',
+      },
+    ],
+    []
+  );
+
   const replicas = (inSyncReplicasCount ?? 0) + (outOfSyncReplicasCount ?? 0);
   const areAllInSync = inSyncReplicasCount && replicas === inSyncReplicasCount;
   const partitionIsOffline = offlinePartitionCount && offlinePartitionCount > 0;
 
+  const isActiveControllerUnKnown = typeof activeControllers === 'undefined';
+
   return (
     <>
-      <PageHeading text="Broker" />
+      <PageHeading text="Brokers" />
       <Metrics.Wrapper>
         <Metrics.Section title="Uptime">
-          <Metrics.Indicator label="Total Broker">
+          <Metrics.Indicator label="Broker Count">
             {brokerCount}
           </Metrics.Indicator>
-          <Metrics.Indicator label="Active Controllers">
-            {activeControllers}
+          <Metrics.Indicator
+            label="Active Controller"
+            isAlert={isActiveControllerUnKnown}
+          >
+            {isActiveControllerUnKnown ? (
+              <S.DangerText>No Active Controller</S.DangerText>
+            ) : (
+              activeControllers
+            )}
           </Metrics.Indicator>
           <Metrics.Indicator label="Version">{version}</Metrics.Indicator>
         </Metrics.Section>
@@ -61,7 +202,10 @@ const BrokersList: React.FC = () => {
               onlinePartitionCount
             )}
             <Metrics.LightText>
-              of {(onlinePartitionCount || 0) + (offlinePartitionCount || 0)}
+              {` of ${
+                (onlinePartitionCount || 0) + (offlinePartitionCount || 0)
+              }
+              `}
             </Metrics.LightText>
           </Metrics.Indicator>
           <Metrics.Indicator
@@ -95,49 +239,15 @@ const BrokersList: React.FC = () => {
           </Metrics.Indicator>
         </Metrics.Section>
       </Metrics.Wrapper>
-      <Table isFullwidth>
-        <thead>
-          <tr>
-            <TableHeaderCell title="Broker" />
-            <TableHeaderCell title="Segment Size" />
-            <TableHeaderCell title="Segment Count" />
-            <TableHeaderCell title="Port" />
-            <TableHeaderCell title="Host" />
-          </tr>
-        </thead>
-        <tbody>
-          {(!diskUsage || diskUsage.length === 0) && (
-            <tr>
-              <td colSpan={10}>Disk usage data not available</td>
-            </tr>
-          )}
-
-          {diskUsage &&
-            diskUsage.length !== 0 &&
-            diskUsage.map(({ brokerId, segmentSize, segmentCount }) => {
-              const brokerItem = brokers?.find(({ id }) => id === brokerId);
-
-              return (
-                <ClickableRow
-                  key={brokerId}
-                  onClick={() => navigate(`${brokerId}`)}
-                >
-                  <td>
-                    <NavLink to={`${brokerId}`} role="link">
-                      {brokerId}
-                    </NavLink>
-                  </td>
-                  <td>
-                    <BytesFormatted value={segmentSize} />
-                  </td>
-                  <td>{segmentCount}</td>
-                  <td>{brokerItem?.port}</td>
-                  <td>{brokerItem?.host}</td>
-                </ClickableRow>
-              );
-            })}
-        </tbody>
-      </Table>
+      <Table
+        columns={columns}
+        data={rows}
+        enableSorting
+        onRowClick={({ original: { brokerId } }) =>
+          navigate(clusterBrokerPath(clusterName, brokerId))
+        }
+        emptyMessage="No clusters are online"
+      />
     </>
   );
 };

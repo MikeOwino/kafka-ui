@@ -1,58 +1,39 @@
 package com.provectus.kafka.ui.config;
 
-import lombok.AllArgsConstructor;
-import org.springframework.boot.autoconfigure.web.ServerProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.context.annotation.Profile;
-import org.springframework.core.io.ClassPathResource;
-import org.springframework.util.StringUtils;
-import org.springframework.web.reactive.config.CorsRegistry;
-import org.springframework.web.reactive.config.WebFluxConfigurer;
-import org.springframework.web.reactive.function.server.RouterFunction;
-import org.springframework.web.reactive.function.server.RouterFunctions;
-import org.springframework.web.reactive.function.server.ServerResponse;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.server.reactive.ServerHttpRequest;
+import org.springframework.http.server.reactive.ServerHttpResponse;
+import org.springframework.web.server.ServerWebExchange;
+import org.springframework.web.server.WebFilter;
+import org.springframework.web.server.WebFilterChain;
+import reactor.core.publisher.Mono;
 
 @Configuration
-@Profile("local")
-@AllArgsConstructor
-public class CorsGlobalConfiguration implements WebFluxConfigurer {
-
-  private final ServerProperties serverProperties;
-
-  @Override
-  public void addCorsMappings(CorsRegistry registry) {
-    registry.addMapping("/**")
-        .allowedOrigins("*")
-        .allowedMethods("*")
-        .allowedHeaders("*")
-        .allowCredentials(false);
-  }
-
-  private String withContext(String pattern) {
-    final String basePath = serverProperties.getServlet().getContextPath();
-    if (StringUtils.hasText(basePath)) {
-      return basePath + pattern;
-    } else {
-      return pattern;
-    }
-  }
+public class CorsGlobalConfiguration {
 
   @Bean
-  public RouterFunction<ServerResponse> cssFilesRouter() {
-    return RouterFunctions
-        .resources(withContext("/static/css/**"), new ClassPathResource("static/static/css/"));
+  public WebFilter corsFilter() {
+    return (final ServerWebExchange ctx, final WebFilterChain chain) -> {
+      final ServerHttpRequest request = ctx.getRequest();
+
+      final ServerHttpResponse response = ctx.getResponse();
+      final HttpHeaders headers = response.getHeaders();
+      headers.add("Access-Control-Allow-Origin", "*");
+      headers.add("Access-Control-Allow-Methods", "GET, PUT, POST, DELETE, OPTIONS");
+      headers.add("Access-Control-Max-Age", "3600");
+      headers.add("Access-Control-Allow-Headers", "Content-Type");
+
+      if (request.getMethod() == HttpMethod.OPTIONS) {
+        response.setStatusCode(HttpStatus.OK);
+        return Mono.empty();
+      }
+
+      return chain.filter(ctx);
+    };
   }
 
-  @Bean
-  public RouterFunction<ServerResponse> jsFilesRouter() {
-    return RouterFunctions
-        .resources(withContext("/static/js/**"), new ClassPathResource("static/static/js/"));
-  }
-
-  @Bean
-  public RouterFunction<ServerResponse> mediaFilesRouter() {
-    return RouterFunctions
-        .resources(withContext("/static/media/**"), new ClassPathResource("static/static/media/"));
-  }
 }

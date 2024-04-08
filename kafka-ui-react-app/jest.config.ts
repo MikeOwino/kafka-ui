@@ -6,10 +6,12 @@ export default {
   coveragePathIgnorePatterns: [
     '/node_modules/',
     '<rootDir>/src/generated-sources/',
+    '<rootDir>/src/lib/fixtures/',
     '<rootDir>/vite.config.ts',
     '<rootDir>/src/index.tsx',
     '<rootDir>/src/serviceWorker.ts',
   ],
+  coverageReporters: ['json', 'lcov', 'text', 'clover'],
   resolver: '<rootDir>/.jest/resolver.js',
   setupFilesAfterEnv: ['<rootDir>/src/setupTests.ts'],
   testMatch: [
@@ -17,7 +19,7 @@ export default {
   ],
   testEnvironment: 'jsdom',
   transform: {
-    '\\.[jt]sx?$': 'babel-jest',
+    '\\.[jt]sx?$': '@swc/jest',
     '^.+\\.css$': '<rootDir>/.jest/cssTransform.js',
   },
   transformIgnorePatterns: [
@@ -30,4 +32,5 @@ export default {
     'jest-watch-typeahead/testname',
   ],
   resetMocks: true,
+  reporters: ['default', 'github-actions'],
 } as Config.InitialOptions;

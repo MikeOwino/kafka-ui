@@ -3,24 +3,17 @@ import { Route, Routes } from 'react-router-dom';
 import { getNonExactPath, RouteParams } from 'lib/paths';
 import BrokersList from 'components/Brokers/BrokersList/BrokersList';
 import Broker from 'components/Brokers/Broker/Broker';
-import { BreadcrumbRoute } from 'components/common/Breadcrumb/Breadcrumb.route';
+import SuspenseQueryComponent from 'components/common/SuspenseQueryComponent/SuspenseQueryComponent';
 
 const Brokers: React.FC = () => (
   <Routes>
-    <Route
-      index
-      element={
-        <BreadcrumbRoute>
-          <BrokersList />
-        </BreadcrumbRoute>
-      }
-    />
+    <Route index element={<BrokersList />} />
     <Route
       path={getNonExactPath(RouteParams.brokerId)}
       element={
-        <BreadcrumbRoute>
+        <SuspenseQueryComponent>
           <Broker />
-        </BreadcrumbRoute>
+        </SuspenseQueryComponent>
       }
     />
   </Routes>

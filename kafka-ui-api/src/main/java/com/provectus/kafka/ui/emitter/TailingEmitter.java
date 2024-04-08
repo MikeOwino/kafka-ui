@@ -1,48 +1,59 @@
 package com.provectus.kafka.ui.emitter;
 
+import com.provectus.kafka.ui.model.ConsumerPosition;
+import com.provectus.kafka.ui.model.TopicMessageDTO;
 import com.provectus.kafka.ui.model.TopicMessageEventDTO;
-import com.provectus.kafka.ui.serde.RecordSerDe;
-import com.provectus.kafka.ui.util.OffsetsSeek;
+import com.provectus.kafka.ui.serdes.ConsumerRecordDeserializer;
+import java.util.HashMap;
+import java.util.function.Predicate;
 import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.common.errors.InterruptException;
-import org.apache.kafka.common.utils.Bytes;
 import reactor.core.publisher.FluxSink;
 
 @Slf4j
-public class TailingEmitter extends AbstractEmitter
-    implements java.util.function.Consumer<FluxSink<TopicMessageEventDTO>> {
+public class TailingEmitter extends AbstractEmitter {
 
-  private final Supplier<KafkaConsumer<Bytes, Bytes>> consumerSupplier;
-  private final OffsetsSeek offsetsSeek;
+  private final Supplier<EnhancedConsumer> consumerSupplier;
+  private final ConsumerPosition consumerPosition;
 
-  public TailingEmitter(RecordSerDe recordDeserializer,
-                        Supplier<KafkaConsumer<Bytes, Bytes>> consumerSupplier,
-                        OffsetsSeek offsetsSeek) {
-    super(recordDeserializer);
+  public TailingEmitter(Supplier<EnhancedConsumer> consumerSupplier,
+                        ConsumerPosition consumerPosition,
+                        ConsumerRecordDeserializer deserializer,
+                        Predicate<TopicMessageDTO> filter,
+                        PollingSettings pollingSettings) {
+    super(new MessagesProcessing(deserializer, filter, false, null), pollingSettings);
     this.consumerSupplier = consumerSupplier;
-    this.offsetsSeek = offsetsSeek;
+    this.consumerPosition = consumerPosition;
   }
 
   @Override
   public void accept(FluxSink<TopicMessageEventDTO> sink) {
-    try (KafkaConsumer<Bytes, Bytes> consumer = consumerSupplier.get()) {
-      log.debug("Starting topic tailing");
-      offsetsSeek.assignAndSeek(consumer);
+    log.debug("Starting tailing polling for {}", consumerPosition);
+    try (EnhancedConsumer consumer = consumerSupplier.get()) {
+      assignAndSeek(consumer);
       while (!sink.isCancelled()) {
         sendPhase(sink, "Polling");
         var polled = poll(sink, consumer);
-        polled.forEach(r -> sendMessage(sink, r));
+        send(sink, polled);
       }
       sink.complete();
       log.debug("Tailing finished");
     } catch (InterruptException kafkaInterruptException) {
+      log.debug("Tailing finished due to thread interruption");
       sink.complete();
     } catch (Exception e) {
-      log.error("Error consuming {}", offsetsSeek.getConsumerPosition(), e);
+      log.error("Error consuming {}", consumerPosition, e);
       sink.error(e);
     }
+  }
+
+  private void assignAndSeek(EnhancedConsumer consumer) {
+    var seekOperations = SeekOperations.create(consumer, consumerPosition);
+    var seekOffsets = new HashMap<>(seekOperations.getEndOffsets()); // defaulting offsets to topic end
+    seekOffsets.putAll(seekOperations.getOffsetsForSeek()); // this will only set non-empty partitions
+    consumer.assign(seekOffsets.keySet());
+    seekOffsets.forEach(consumer::seek);
   }
 
 }

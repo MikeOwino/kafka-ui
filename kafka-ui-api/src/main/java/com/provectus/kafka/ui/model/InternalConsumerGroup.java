@@ -4,8 +4,8 @@ import java.util.Collection;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.function.Predicate;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import lombok.Builder;
 import lombok.Data;
 import org.apache.kafka.clients.admin.ConsumerGroupDescription;
@@ -21,6 +21,8 @@ public class InternalConsumerGroup {
   private final Collection<InternalMember> members;
   private final Map<TopicPartition, Long> offsets;
   private final Map<TopicPartition, Long> endOffsets;
+  private final Long consumerLag;
+  private final Integer topicNum;
   private final String partitionAssignor;
   private final ConsumerGroupState state;
   private final Node coordinator;
@@ -44,51 +46,55 @@ public class InternalConsumerGroup {
     builder.simple(description.isSimpleConsumerGroup());
     builder.state(description.state());
     builder.partitionAssignor(description.partitionAssignor());
-    builder.members(
-        description.members().stream()
-            .map(m ->
-                InternalConsumerGroup.InternalMember.builder()
-                    .assignment(m.assignment().topicPartitions())
-                    .clientId(m.clientId())
-                    .groupInstanceId(m.groupInstanceId().orElse(""))
-                    .consumerId(m.consumerId())
-                    .clientId(m.clientId())
-                    .host(m.host())
-                    .build()
-            ).collect(Collectors.toList())
-    );
+    Collection<InternalMember> internalMembers = initInternalMembers(description);
+    builder.members(internalMembers);
     builder.offsets(groupOffsets);
     builder.endOffsets(topicEndOffsets);
+    builder.consumerLag(calculateConsumerLag(groupOffsets, topicEndOffsets));
+    builder.topicNum(calculateTopicNum(groupOffsets, internalMembers));
     Optional.ofNullable(description.coordinator()).ifPresent(builder::coordinator);
     return builder.build();
   }
 
-  // removes data for all partitions that are not fit filter
-  public InternalConsumerGroup retainDataForPartitions(Predicate<TopicPartition> partitionsFilter) {
-    var offsetsMap = getOffsets().entrySet().stream()
-        .filter(e -> partitionsFilter.test(e.getKey()))
-        .collect(Collectors.toMap(
-            Map.Entry::getKey,
-            Map.Entry::getValue
-        ));
+  private static Long calculateConsumerLag(Map<TopicPartition, Long> offsets, Map<TopicPartition, Long> endOffsets) {
+    Long consumerLag = null;
+    // consumerLag should be undefined if no committed offsets found for topic
+    if (!offsets.isEmpty()) {
+      consumerLag = offsets.entrySet().stream()
+          .mapToLong(e ->
+              Optional.ofNullable(endOffsets)
+                  .map(o -> o.get(e.getKey()))
+                  .map(o -> o - e.getValue())
+                  .orElse(0L)
+          ).sum();
+    }
 
-    var nonEmptyMembers = getMembers().stream()
-        .map(m -> filterConsumerMemberTopic(m, partitionsFilter))
-        .filter(m -> !m.getAssignment().isEmpty())
-        .collect(Collectors.toList());
-
-    return toBuilder()
-        .offsets(offsetsMap)
-        .members(nonEmptyMembers)
-        .build();
+    return consumerLag;
   }
 
-  private InternalConsumerGroup.InternalMember filterConsumerMemberTopic(
-      InternalConsumerGroup.InternalMember member, Predicate<TopicPartition> partitionsFilter) {
-    var topicPartitions = member.getAssignment()
-        .stream()
-        .filter(partitionsFilter)
-        .collect(Collectors.toSet());
-    return member.toBuilder().assignment(topicPartitions).build();
+  private static Integer calculateTopicNum(Map<TopicPartition, Long> offsets, Collection<InternalMember> members) {
+
+    return (int) Stream.concat(
+        offsets.keySet().stream().map(TopicPartition::topic),
+        members.stream()
+            .flatMap(m -> m.getAssignment().stream().map(TopicPartition::topic))
+    ).distinct().count();
+
   }
+
+  private static Collection<InternalMember> initInternalMembers(ConsumerGroupDescription description) {
+    return description.members().stream()
+        .map(m ->
+            InternalConsumerGroup.InternalMember.builder()
+                .assignment(m.assignment().topicPartitions())
+                .clientId(m.clientId())
+                .groupInstanceId(m.groupInstanceId().orElse(""))
+                .consumerId(m.consumerId())
+                .clientId(m.clientId())
+                .host(m.host())
+                .build()
+        ).collect(Collectors.toList());
+  }
+
+
 }
